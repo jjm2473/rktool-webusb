@@ -13,20 +13,53 @@ async function loadNodeUsb() {
   return usbModule.usb || usbModule.default || usbModule;
 }
 
+function resolveWebUsb(options = {}) {
+  if (options.webUsb) {
+    return options.webUsb;
+  }
+
+  if (globalThis.navigator && globalThis.navigator.usb) {
+    return globalThis.navigator.usb;
+  }
+
+  return null;
+}
+
 export function createUsbAdapter(options = {}) {
   const runtime = options.runtime || 'node';
   const defaultFilters = options.filters || ROCKCHIP_USB_FILTERS;
+  const webUsb = resolveWebUsb(options);
+  let nodeUsbPromise = null;
+
+  async function getNodeUsb() {
+    if (options.nodeUsb) {
+      return options.nodeUsb;
+    }
+
+    if (!nodeUsbPromise) {
+      nodeUsbPromise = (async () => {
+        if (typeof options.loadNodeUsb === 'function') {
+          const usbModule = await options.loadNodeUsb();
+          return usbModule?.usb || usbModule?.default || usbModule;
+        }
+
+        return loadNodeUsb();
+      })();
+    }
+
+    return nodeUsbPromise;
+  }
 
   async function requestDevice(filters = defaultFilters) {
     if (isBrowserRuntime(runtime)) {
-      if (!globalThis.navigator || !globalThis.navigator.usb) {
+      if (!webUsb) {
         throw new Error('WebUSB is not available in this browser context');
       }
-      return globalThis.navigator.usb.requestDevice({ filters });
+      return webUsb.requestDevice({ filters });
     }
 
     if (isNodeRuntime(runtime)) {
-      const usb = await loadNodeUsb();
+      const usb = await getNodeUsb();
       const list = usb.getDeviceList();
       return list.find((device) => {
         if (!device || !device.deviceDescriptor) {
@@ -41,14 +74,14 @@ export function createUsbAdapter(options = {}) {
 
   async function getDevices() {
     if (isBrowserRuntime(runtime)) {
-      if (!globalThis.navigator || !globalThis.navigator.usb) {
+      if (!webUsb) {
         return [];
       }
-      return globalThis.navigator.usb.getDevices();
+      return webUsb.getDevices();
     }
 
     if (isNodeRuntime(runtime)) {
-      const usb = await loadNodeUsb();
+      const usb = await getNodeUsb();
       return usb.getDeviceList();
     }
 

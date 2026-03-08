@@ -10,6 +10,7 @@ set(RKDEVELOPTOOL_DIR "${RKTOOL_ROOT}/rkdeveloptool")
 set(LIBUSB_ROOT "${RKTOOL_ROOT}/ref/libusb-1.0.29" CACHE PATH "Path to libusb source")
 set(LIBUSB_INCLUDE_DIR "${LIBUSB_ROOT}/libusb")
 set(LIBUSB_STATIC_LIB "${LIBUSB_ROOT}/build-wasm/libusb/.libs/libusb-1.0.a" CACHE FILEPATH "Path to wasm libusb static library")
+set(RK_WASM_JS_MINIFY OFF CACHE BOOL "Enable JS minification for dist/rkdeveloptool.js")
 
 if(NOT EXISTS "${RKDEVELOPTOOL_DIR}")
     message(FATAL_ERROR "rkdeveloptool source not found: ${RKDEVELOPTOOL_DIR}")
@@ -41,14 +42,22 @@ target_include_directories(rkdeveloptool PRIVATE
 
 target_link_libraries(rkdeveloptool PRIVATE "${LIBUSB_STATIC_LIB}")
 
+if(NOT RK_WASM_JS_MINIFY)
+    target_link_options(rkdeveloptool PRIVATE
+        "--minify"
+        "0"
+    )
+endif()
+
 target_link_options(rkdeveloptool PRIVATE
     "-sUSE_PTHREADS=0"
     "-sALLOW_MEMORY_GROWTH=1"
-    "-sNODERAWFS=1"
     "-sFORCE_FILESYSTEM=1"
+	"-D_FILE_OFFSET_BITS=64"
     "-sASYNCIFY"
     "--bind"
     "-lworkerfs.js"
+    "-lnodefs.js"
     "-sMODULARIZE=1"
     "-sEXPORT_ES6=1"
     "-sEXPORT_NAME=createRKDevelopToolModule"

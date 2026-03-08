@@ -46,7 +46,7 @@
       runtime: 'browser',
       onStdout: appendLine,
       onStderr: appendLine,
-      onLogWrite: (event) => appendLine(`[log] ${event.path}: ${event.text}`),
+      onLogWrite: (text) => appendLine(`[log] ${text}`),
     });
     appendLine('初始化完成');
 

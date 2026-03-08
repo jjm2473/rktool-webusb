@@ -16,7 +16,13 @@ export function detectRuntime() {
 export function createPlatformAdapter(options = {}) {
   const runtime = options.runtime || detectRuntime();
   const usbFilters = options.usbFilters || ROCKCHIP_USB_FILTERS;
-  const usbAdapter = createUsbAdapter({ runtime, filters: usbFilters });
+  const usbAdapter = createUsbAdapter({
+    runtime,
+    filters: usbFilters,
+    nodeUsb: options.nodeUsb,
+    loadNodeUsb: options.loadNodeUsb,
+    webUsb: options.webUsb,
+  });
 
   async function pickFile() {
     if (runtime === 'browser') {

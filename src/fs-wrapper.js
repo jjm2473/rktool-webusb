@@ -1,10 +1,29 @@
 const DEFAULT_MOUNT_ROOT = '/tmp/mounts';
 
 function ensureDir(FS, dirPath) {
+  const dirExists = () => {
+    try {
+      if (typeof FS.analyzePath === 'function') {
+        return FS.analyzePath(dirPath).exists;
+      }
+      if (typeof FS.stat === 'function' && typeof FS.isDir === 'function') {
+        const stat = FS.stat(dirPath);
+        return FS.isDir(stat.mode);
+      }
+    } catch (_error) {
+      return false;
+    }
+    return false;
+  };
+
+  if (dirExists()) {
+    return;
+  }
+
   try {
     FS.mkdir(dirPath);
   } catch (error) {
-    if (!String(error && error.message).includes('File exists')) {
+    if (!dirExists() && !String(error && error.message).includes('File exists')) {
       throw error;
     }
   }

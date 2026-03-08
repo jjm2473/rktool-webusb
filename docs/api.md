@@ -9,7 +9,7 @@ const wrapper = await createRKDevelopToolWrapper({
   runtime: 'browser',
   onStdout: (line) => console.log(line),
   onStderr: (line) => console.error(line),
-  onLogWrite: (event) => console.log(event.path, event.text),
+  onLogWrite: (text) => console.log(text),
 });
 ```
 

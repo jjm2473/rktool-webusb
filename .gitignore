@@ -2,3 +2,4 @@
 /build-wasm
 /dist
 /ref
+/tests/loader

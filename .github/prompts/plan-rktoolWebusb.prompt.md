@@ -9,7 +9,7 @@
    - 创建 `CMakeLists.wasm.txt`，基于 `rkdeveloptool/CMakeLists.txt` 修改：
      - 指向 `ref/libusb-1.0.29` 并启用 emscripten_webusb 后端
      - 添加 Emscripten 链接标志：`-sUSE_PTHREADS=0 -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_RUNTIME_METHODS=['FS','callMain']`
-     - 添加 `-sNODERAWFS=1` 支持 Node.js 文件系统
+     - 添加 `-lnodefs.js` 支持 Node.js 文件系统
      - 导出 CLI 接口为 WASM 模块
    - 创建 `patches/rkdeveloptool/002-emscripten-compat.patch`，修复平台相关代码（见步骤2）
 
@@ -166,8 +166,8 @@ node examples/nodejs/cli.js ld
   - `-sUSE_PTHREADS=0` - 禁用线程（无需使用）
   - `-sALLOW_MEMORY_GROWTH=1` - 允许堆增长（大文件支持）
   - `-sEXPORTED_RUNTIME_METHODS=['FS','callMain']` - 导出文件系统和 main 调用
-  - `-sNODERAWFS=1` - Node.js 原始文件系统访问
   - `-sWORKERFS=1` - WebWorker 文件系统（浏览器）
+  - `-lnodefs.js` - Node.js 文件系统挂载后端（NODEFS）
 
 ### 已知限制
 - WebUSB 需要用户交互确认（无法自动发现设备）

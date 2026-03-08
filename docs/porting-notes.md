@@ -49,7 +49,7 @@
 - `-sUSE_PTHREADS=0`：禁用 pthread（当前工具无必需线程能力）。
 - `-sALLOW_MEMORY_GROWTH=1`：允许堆扩展，降低大文件内存峰值失败概率。
 - `-sWORKERFS=1`：启用浏览器侧文件挂载。
-- `-sNODERAWFS=1`：启用 Node 原始文件系统访问能力。
+- `-lnodefs.js`：启用 Node.js 侧 `NODEFS` 挂载后端能力。
 - `-sFORCE_FILESYSTEM=1`：强制包含 FS 运行时。
 - `-sMODULARIZE=1`：导出模块工厂函数。
 - `-sEXPORT_ES6=1`：生成 ES Module 形式加载器。
@@ -57,6 +57,8 @@
 - `-sINVOKE_RUN=0`：禁止自动执行 `main`，改为 wrapper 通过 `callMain()` 调用。
 - `-sEXPORTED_RUNTIME_METHODS=['FS','callMain']`：导出运行时方法。
 - `-sEXPORTED_FUNCTIONS=['_main']`：导出主入口符号。
+- `RK_WASM_JS_MINIFY=0`（默认）：传 `--minify 0`，关闭 JS 混淆便于调试。
+- `RK_WASM_JS_MINIFY=1`：使用 Emscripten 默认压缩/混淆策略，适合发布构建。
 
 ## 已知限制
 

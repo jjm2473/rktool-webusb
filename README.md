@@ -14,10 +14,25 @@
 ./build_wasm.sh
 ```
 
+或使用 npm 脚本：
+
+```bash
+npm run build:wasm:dev
+npm run build:wasm:release
+```
+
 构建完成后会在 `dist/` 生成：
 
 - `rkdeveloptool.js`
 - `rkdeveloptool.wasm`
+
+默认构建会关闭 JS 混淆（`RK_WASM_JS_MINIFY=0`，内部使用 `--minify 0`），便于调试与排查问题。
+
+如需发布体积优化版本，可开启 JS 混淆：
+
+```bash
+RK_WASM_JS_MINIFY=1 ./build_wasm.sh
+```
 
 ## Node.js 使用
 

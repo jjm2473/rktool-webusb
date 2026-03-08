@@ -8,6 +8,18 @@ LIBUSB_STATIC_LIB="$LIBUSB_BUILD_DIR/libusb/.libs/libusb-1.0.a"
 WASM_CMAKE_SRC_DIR="$ROOT_DIR/.wasm-cmake"
 WASM_BUILD_DIR="$ROOT_DIR/build-wasm"
 DIST_DIR="$ROOT_DIR/dist"
+RK_WASM_JS_MINIFY="${RK_WASM_JS_MINIFY:-0}"
+
+if [[ "$RK_WASM_JS_MINIFY" != "0" && "$RK_WASM_JS_MINIFY" != "1" ]]; then
+  echo "invalid RK_WASM_JS_MINIFY: $RK_WASM_JS_MINIFY (expected 0 or 1)" >&2
+  exit 1
+fi
+
+if [[ "$RK_WASM_JS_MINIFY" == "1" ]]; then
+  RK_WASM_JS_MINIFY_CMAKE="ON"
+else
+  RK_WASM_JS_MINIFY_CMAKE="OFF"
+fi
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -57,6 +69,7 @@ emcmake cmake \
   -B "$WASM_BUILD_DIR" \
   -DRKTOOL_ROOT="$ROOT_DIR" \
   -DLIBUSB_STATIC_LIB="$LIBUSB_STATIC_LIB" \
+  -DRK_WASM_JS_MINIFY="$RK_WASM_JS_MINIFY_CMAKE" \
   -DCMAKE_BUILD_TYPE=Release
 
 cmake --build "$WASM_BUILD_DIR" --parallel "$(cpu_count)"

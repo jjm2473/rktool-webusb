@@ -13,6 +13,8 @@
   },
   "scripts": {
     "build:wasm": "./build_wasm.sh",
+    "build:wasm:dev": "RK_WASM_JS_MINIFY=0 ./build_wasm.sh",
+    "build:wasm:release": "RK_WASM_JS_MINIFY=1 ./build_wasm.sh",
     "test": "node --test tests/**/*.test.js",
     "test:build": "node tests/build.test.js",
     "test:unit": "node --test tests/unit/*.test.js"
