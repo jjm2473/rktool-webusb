@@ -1,3 +1,22 @@
+var ENVIRONMENT_IS_NODE = globalThis.process?.versions?.node && globalThis.process?.type != "renderer";
+
+if (ENVIRONMENT_IS_NODE) {
+  // When building an ES module `require` is not normally available.
+  // We need to use `createRequire()` to construct the require()` function.
+  const {createRequire} = await import("node:module");
+  /** @suppress{duplicate} */ var require = createRequire(import.meta.url);
+
+  var fs = require("node:fs");
+  var assert = function (condition, text) {
+    if (!condition) {
+      // This build was created without ASSERTIONS defined.  `assert()` should not
+      // ever be called in this configuration but in case there are callers in
+      // the wild leave this simple abort() implementation here for now.
+      abort(text);
+    }
+  }
+}
+
 const DEFAULT_MOUNT_ROOT = '/tmp/mounts';
 
 function ensureDir(FS, dirPath) {
@@ -48,46 +67,101 @@ function isBrowserRuntime(runtime) {
   return runtime === 'browser';
 }
 
-function toUint8Array(data) {
-  if (data instanceof Uint8Array) {
-    return data;
+function resolveBrowserMount(source, fallbackName) {
+  if (!source || typeof source !== 'object') {
+    throw new Error('Browser runtime requires a File/Blob-like source object');
   }
 
-  if (ArrayBuffer.isView(data)) {
-    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  const preferredName = typeof source.name === 'string' && source.name.trim()
+    ? source.name
+    : String(fallbackName || 'input.bin');
+
+  if (typeof Blob !== 'undefined' && source instanceof Blob) {
+    return {
+      mountOptions: {
+        blobs: [{
+          name: preferredName,
+          data: source,
+        }],
+      },
+      virtualName: preferredName,
+    };
   }
 
-  if (data instanceof ArrayBuffer) {
-    return new Uint8Array(data);
-  }
-
-  return null;
-}
-
-async function readSourceBytes(source) {
-  const directBytes = toUint8Array(source);
-  if (directBytes) {
-    return directBytes;
-  }
-
-  if (source && typeof source.arrayBuffer === 'function') {
-    const buffer = await source.arrayBuffer();
-    return new Uint8Array(buffer);
-  }
-
-  if (typeof source === 'string') {
-    const fsModule = await import('node:fs/promises');
-    const buffer = await fsModule.readFile(source);
-    return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-  }
-
-  throw new Error('Unable to read file source bytes for browser runtime');
+  return {
+    mountOptions: {
+      files: [source],
+    },
+    virtualName: preferredName,
+  };
 }
 
 export function ensureRuntimeDirs(FS) {
   ensureDir(FS, '/tmp');
   ensureDir(FS, '/tmp/log');
   ensureDir(FS, DEFAULT_MOUNT_ROOT);
+}
+
+export function workerFsForNode(moduleInstance) {
+  const FS = moduleInstance.FS;
+  const WORKERFS = moduleInstance.WORKERFS || FS.filesystems?.WORKERFS;
+  if (!WORKERFS) {
+    throw new Error('WORKERFS is required for browser file mapping');
+  }
+
+  const NODEWORKERFS = {
+    ...WORKERFS,
+    mount(mount) {
+      //assert(ENVIRONMENT_IS_WORKER);
+      //WORKERFS.reader ??= new FileReaderSync;
+      var root = WORKERFS.createNode(null, "/", WORKERFS.DIR_MODE, 0);
+      // We also accept FileList here
+      for (var source of (mount.opts["files"] || [])) {
+        NODEWORKERFS.createNode(root, source.name, WORKERFS.FILE_MODE, 0, source.path);
+      }
+      return root;
+    },
+    createNode(parent, name, mode, dev, path) {
+      var stat = fs.lstatSync(path);
+      var size = stat.size;
+      var mtime = stat.mtime;
+      var node = FS.createNode(parent, name, mode);
+      node.mode = mode;
+      node.node_ops = WORKERFS.node_ops;
+      node.stream_ops = NODEWORKERFS.stream_ops;
+      node.atime = node.mtime = node.ctime = mtime;
+      assert(WORKERFS.FILE_MODE !== WORKERFS.DIR_MODE);
+      if (mode === WORKERFS.FILE_MODE) {
+        node.size = size;
+        node.hostpath = path;
+      } else {
+        // should now go here
+        node.size = 4096;
+        node.hostpath = null;
+      }
+      if (parent) {
+        parent.contents[name] = node;
+      }
+      return node;
+    },
+    stream_ops: {
+      ...WORKERFS.stream_ops,
+      open(stream) {
+        var path = stream.node.hostpath;
+        stream.nfd = fs.openSync(path, stream.flags);
+      },
+      close(stream) {
+        fs.closeSync(stream.nfd);
+      },
+      read(stream, buffer, offset, length, position) {
+        return fs.readSync(stream.nfd, buffer, offset, length, position);
+      },
+      write(stream, buffer, offset, length, position) {
+        return fs.writeSync(stream.nfd, buffer, offset, length, position);
+      },
+    },
+  };
+  return NODEWORKERFS;
 }
 
 export function createFsWrapper(moduleInstance, options = {}) {
@@ -108,44 +182,36 @@ export function createFsWrapper(moduleInstance, options = {}) {
     if (!source) {
       throw new Error('source is required');
     }
-
+    if (!WORKERFS) {
+      throw new Error('WORKERFS is required for file mapping');
+    }
     const mountName = toMountName(name);
     const mountPoint = `${mountRoot}/${mountName}`;
     ensureDir(FS, mountPoint);
 
     if (isBrowserRuntime(runtime)) {
-      const fileObject = source;
-      const fileName = fileObject.name || name || 'input.bin';
-
-      if (WORKERFS) {
-        try {
-          FS.mount(WORKERFS, { files: [fileObject] }, mountPoint);
-          return `${mountPoint}/${fileName}`;
-        } catch (_error) {
-        }
+      const browserMount = resolveBrowserMount(source, name);
+      try {
+        FS.mount(WORKERFS, browserMount.mountOptions, mountPoint);
+      } catch (error) {
+        const errorMessage = String(error && error.message ? error.message : error);
+        throw new Error(`Failed to mount source with WORKERFS: ${errorMessage}`);
       }
 
-      if (typeof FS.writeFile !== 'function') {
-        throw new Error('FS.writeFile is required for browser file fallback');
-      }
-
-      const bytes = await readSourceBytes(source);
-      const virtualPath = `${mountPoint}/${fileName}`;
-      FS.writeFile(virtualPath, bytes);
-      return virtualPath;
+      return `${mountPoint}/${browserMount.virtualName}`;
     }
 
     if (isNodeRuntime(runtime)) {
-      const pathModule = await import('node:path');
-      const absolutePath = pathModule.resolve(String(source));
-      const parentDir = pathModule.dirname(absolutePath);
-      const baseName = pathModule.basename(absolutePath);
+      const NODEWORKERFS = workerFsForNode(moduleInstance);
 
-      if (!NODEFS) {
-        return absolutePath;
+      if (typeof source !== 'string') {
+        throw new Error('Node.js runtime requires source to be a local file path string');
       }
 
-      FS.mount(NODEFS, { root: parentDir }, mountPoint);
+      const pathModule = await import('node:path');
+      const absolutePath = pathModule.resolve(String(source));
+      const baseName = pathModule.basename(absolutePath);
+      FS.mount(NODEWORKERFS, { files: [{path: source, name: baseName}] }, mountPoint);
       return `${mountPoint}/${baseName}`;
     }
 

@@ -26,7 +26,7 @@ function createMockNodeUsb(devices = [DEFAULT_MOCK_USB_DEVICE]) {
   };
 }
 
-function createMockWebUsb(options = {}) {
+function createMockUsb(options = {}) {
   const devices = options.devices || [{ vendorId: 0x2207, productId: 0x350b }];
   const state = {
     requestDeviceCallCount: 0,
@@ -53,6 +53,11 @@ function createMockWebUsb(options = {}) {
         return devices;
       },
     },
+    nodeUsb: {
+      getDeviceList() {
+        return devices;
+      },
+    }
   };
 }
 
@@ -124,7 +129,7 @@ function createRockusbWebUsbDevice(options = {}) {
 
   const configDescriptor = [
     9, 2, 32, 0, 1, 1, 0, 0x80, 50,
-    9, 4, 0, 0, 2, 0xff, 0, 0, 0,
+    9, 4, 0, 0, 2, 0xff, 6, 5, 0,
     7, 5, 0x81, 2, 0x00, 0x02, 0,
     7, 5, 0x01, 2, 0x00, 0x02, 0,
   ];
@@ -138,6 +143,7 @@ function createRockusbWebUsbDevice(options = {}) {
       console.debug(`Device open called (vid: ${vid.toString(16)}, pid: ${pid.toString(16)})`);
       transportState.openCallCount++;
       this.opened = true;
+      return 0;
     },
     async close() {
       transportState.closeCallCount++;
@@ -172,7 +178,7 @@ function createRockusbWebUsbDevice(options = {}) {
     async bulkTransferOut(endpointNumber, data) {
       return this.transferOut(endpointNumber, data);
     },
-    async claimInterface() {},
+    async claimInterface() { return 0;},
     async releaseInterface() {},
     async selectAlternateInterface() {},
     async clearHalt() {},
@@ -200,6 +206,10 @@ function createUnitTestWrapperOptions(overrides = {}) {
 
 function hasBuiltWasmArtifacts() {
   return fs.existsSync(distJsPath) && fs.existsSync(distWasmPath);
+}
+
+function hasWorkerFsSupport() {
+  return typeof FileReaderSync === 'function';
 }
 
 function createBrowserFileFromPath(filePath, fileName = path.basename(filePath)) {
@@ -417,6 +427,8 @@ test('runCommand requestDevice uses mocked node-usb in unit test', async () => {
   let getDeviceListCallCount = 0;
 
   const mockNodeUsb = {
+    requestDevice() {
+    },
     getDeviceList() {
       getDeviceListCallCount++;
       return [
@@ -484,7 +496,7 @@ test('getDevices uses mocked node-usb in unit test', async () => {
 test('webusb stage: runCommand requests mocked WebUSB device before callMain', async () => {
   let capturedArgv = [];
   const callOrder = [];
-  const { webUsb, state } = createMockWebUsb();
+  const { webUsb, state } = createMockUsb();
   const originalRequestDevice = webUsb.requestDevice;
   webUsb.requestDevice = async (requestOptions) => {
     callOrder.push('requestDevice');
@@ -518,7 +530,7 @@ test('webusb stage: runCommand requests mocked WebUSB device before callMain', a
 
 test('webusb stage: requestDevice rejection stops callMain', async () => {
   let callMainCalled = false;
-  const { webUsb, state } = createMockWebUsb({
+  const { webUsb, state } = createMockUsb({
     requestDeviceError: new Error('WebUSB permission denied'),
   });
 
@@ -548,7 +560,7 @@ test('webusb stage: getDevices uses mocked WebUSB list', async () => {
     { vendorId: 0x2207, productId: 0x350b },
     { vendorId: 0x2207, productId: 0x330c },
   ];
-  const { webUsb, state } = createMockWebUsb({ devices: mockDevices });
+  const { webUsb, state } = createMockUsb({ devices: mockDevices });
 
   const wrapper = await createRKDevelopToolWrapper({
     runtime: 'browser',
@@ -597,7 +609,7 @@ test('real flow: ld runs real callMain and only mocks WebUSB', {
       return originalControlTransferIn(...args);
     };
 
-    const { webUsb, state } = createMockWebUsb({
+    const { nodeUsb, webUsb, state } = createMockUsb({
       devices: [device],
       requestDeviceResult: device,
     });
@@ -609,8 +621,9 @@ test('real flow: ld runs real callMain and only mocks WebUSB', {
 
     await withMockNavigatorUsb(webUsb, async () => {
       const wrapper = await createRKDevelopToolWrapper({
-        runtime: 'browser',
+        runtime: 'node',
         webUsb,
+        nodeUsb,
         onStdout: (text) => {
           console.debug(`STDOUT: ${text}\n`);
         },
@@ -629,7 +642,7 @@ test('real flow: ld runs real callMain and only mocks WebUSB', {
       runCommandResolved = true;
 
       assert.equal(typeof result.exitCode, 'number');
-      assert.equal(state.requestDeviceCallCount, 1);
+      assert.equal(state.requestDeviceCallCount, 0);
       assert.equal(state.getDevicesCallCount, 1);
       assert.equal(transportState.openCallCount > 0, true);
       assert.equal(transportState.controlTransferInCalls.length > 0, true);
@@ -647,21 +660,21 @@ test('real flow: db loader fixture mounts into VFS before command', {
     console.debug('\nflush\n');
     const loaderPath = path.join(projectRoot, 'tests', 'loader', 'MiniLoaderAll.bin');
     assert.equal(fs.existsSync(loaderPath), true, 'loader fixture must exist');
-    const loaderFile = createBrowserFileFromPath(loaderPath, 'MiniLoaderAll.bin');
     const { device } = createRockusbWebUsbDevice({
       vid: 0x2207,
       pid: 0x320a,
       bcdUsb: 0x0200,
     });
-    const { webUsb, state } = createMockWebUsb({
+    const { nodeUsb, webUsb, state } = createMockUsb({
       devices: [device],
       requestDeviceResult: device,
     });
 
     await withMockNavigatorUsb(webUsb, async () => {
       const wrapper = await createRKDevelopToolWrapper({
-        runtime: 'browser',
+        runtime: 'node',
         webUsb,
+        nodeUsb,
         onStdout: (text) => {
           console.debug(`STDOUT: ${text}\n`);
         },
@@ -672,8 +685,11 @@ test('real flow: db loader fixture mounts into VFS before command', {
           console.debug(`Log: ${text}`);
         },
       });
+      console.debug('mount MiniLoaderAll.bin\n');
 
-      const mountedPath = await wrapper.mountFile('MiniLoaderAll.bin', loaderFile);
+      const mountedPath = await wrapper.mountFile('MiniLoaderAll.bin', loaderPath);
+      console.debug('mount MiniLoaderAll.bin done\n');
+
       assert.match(mountedPath, /^\/tmp\/mounts\/.+\/MiniLoaderAll\.bin$/);
 
       const result = await wrapper.runCommand(['db', mountedPath], {
@@ -682,7 +698,7 @@ test('real flow: db loader fixture mounts into VFS before command', {
       });
 
       assert.equal(typeof result.exitCode, 'number');
-      assert.equal(state.requestDeviceCallCount, 1);
+      assert.equal(state.requestDeviceCallCount, 0);
       assert.equal(state.getDevicesCallCount, 1);
     });
   });

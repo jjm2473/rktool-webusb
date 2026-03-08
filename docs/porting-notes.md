@@ -32,6 +32,7 @@
 - `src/fs-wrapper.js`
   - 浏览器：`WORKERFS` 挂载 `File`。
   - Node.js：`NODEFS` 挂载本地目录。
+  - 文件挂载为纯映射模式，不回退 `MEMFS.writeFile` 内存写入。
   - 统一 `mountFile(name, source)` 接口。
 
 - `src/usb-adapter.js`

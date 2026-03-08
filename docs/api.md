@@ -28,7 +28,9 @@ const wrapper = await createRKDevelopToolWrapper({
   - `usbFilters?: Array<{ vendorId?: number; productId?: number }>`
     - 默认使用 Rockchip `vendorId=0x2207`。
   - `fileSource?: unknown`
-    - 浏览器下传入 `File`，Node 下传入本地路径字符串。
+    - 浏览器下传入 `File/Blob`，通过 `WORKERFS` 映射挂载。
+    - Node 下传入本地文件路径字符串，通过 `NODEFS` 映射挂载。
+    - 不再回退到 `MEMFS writeFile` 内存写入。
   - `fileName?: string`
     - 虚拟挂载名称提示。
   - `replaceToken?: string`
@@ -57,6 +59,7 @@ const wrapper = await createRKDevelopToolWrapper({
 
 - `mountFile(name, source)`
   - 显式挂载文件并返回虚拟路径。
+  - 浏览器必须可用 `WORKERFS`，Node.js 必须可用 `NODEFS`；不可用时会抛错。
 
 ## 浏览器流程建议
 

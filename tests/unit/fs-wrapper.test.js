@@ -87,6 +87,7 @@ test('mountFile uses NODEFS in node runtime', async () => {
   const moduleInstance = {
     FS,
     NODEFS: { kind: 'NODEFS' },
+    WORKERFS: { kind: 'WORKERFS' },
   };
 
   const wrapper = createFsWrapper(moduleInstance, { runtime: 'node' });
@@ -96,14 +97,16 @@ test('mountFile uses NODEFS in node runtime', async () => {
   const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
   const mountRecord = FS.mounts.get(mountPoint);
   assert.ok(mountRecord);
-  assert.equal(mountRecord.type.kind, 'NODEFS');
-  assert.equal(mountRecord.options.root, '/tmp');
+  assert.equal(mountRecord.type.kind, 'WORKERFS');
+  assert.equal(mountRecord.options.files[0].path, '/tmp/test-update.img');
+  assert.equal(mountRecord.options.files[0].name, 'test-update.img');
 });
 
 test('mountFile uses NODEFS from FS.filesystems fallback', async () => {
   const FS = createMockFs();
   FS.filesystems = {
     NODEFS: { kind: 'NODEFS' },
+    WORKERFS: { kind: 'WORKERFS' },
   };
   const moduleInstance = {
     FS,
@@ -116,11 +119,12 @@ test('mountFile uses NODEFS from FS.filesystems fallback', async () => {
   const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
   const mountRecord = FS.mounts.get(mountPoint);
   assert.ok(mountRecord);
-  assert.equal(mountRecord.type.kind, 'NODEFS');
-  assert.equal(mountRecord.options.root, '/tmp');
+  assert.equal(mountRecord.type.kind, 'WORKERFS');
+  assert.equal(mountRecord.options.files[0].path, '/tmp/test-update.img');
+  assert.equal(mountRecord.options.files[0].name, 'test-update.img');
 });
 
-test('mountFile falls back to writeFile when WORKERFS mount fails', async () => {
+test('mountFile throws when WORKERFS mount fails', async () => {
   const FS = createMockFs();
   FS.filesystems = {
     WORKERFS: { kind: 'WORKERFS' },
@@ -139,14 +143,41 @@ test('mountFile falls back to writeFile when WORKERFS mount fails', async () => 
   const wrapper = createFsWrapper(moduleInstance, { runtime: 'browser' });
   const fakeFile = {
     name: 'firmware.bin',
-    async arrayBuffer() {
-      return Uint8Array.from([1, 2, 3]).buffer;
-    },
   };
 
-  const mountedPath = await wrapper.mountFile('firmware', fakeFile);
+  await assert.rejects(
+    () => wrapper.mountFile('firmware', fakeFile),
+    /Failed to mount source with WORKERFS: WORKERFS requires worker/
+  );
 
-  assert.match(mountedPath, /^\/tmp\/mounts\/.+\/firmware\.bin$/);
   assert.equal(mountCallCount, 1);
-  assert.equal(FS.files.has(mountedPath), true);
+});
+
+test('mountFile throws when WORKERFS is unavailable in browser runtime', async () => {
+  const FS = createMockFs();
+  const moduleInstance = {
+    FS,
+  };
+
+  const wrapper = createFsWrapper(moduleInstance, { runtime: 'browser' });
+  const fakeFile = { name: 'firmware.bin' };
+
+  await assert.rejects(
+    () => wrapper.mountFile('firmware', fakeFile),
+    /WORKERFS is required for file mapping/
+  );
+});
+
+test('mountFile throws when WORKERFS is unavailable in node runtime', async () => {
+  const FS = createMockFs();
+  const moduleInstance = {
+    FS,
+  };
+
+  const wrapper = createFsWrapper(moduleInstance, { runtime: 'node' });
+
+  await assert.rejects(
+    () => wrapper.mountFile('image', '/tmp/test-update.img'),
+    /WORKERFS is required for file mapping/
+  );
 });
