@@ -8,6 +8,11 @@
 - CMake 3.16+
 - Node.js 18+
 
+## 准备
+1. 下载并解压 libusb-1.0.29 到 ref，打上 patches/libusb 补丁
+2. 拉取 rkdeveloptool ，打上 patches/rkdeveloptool 补丁
+
+
 ## 构建 WASM
 
 ```bash
