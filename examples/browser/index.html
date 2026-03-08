@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>rkdeveloptool WebUSB 示例</title>
+</head>
+<body>
+  <h1>rkdeveloptool WebUSB 示例</h1>
+
+  <div>
+    <button id="pick-file">选择固件文件</button>
+    <span id="file-name">未选择文件</span>
+  </div>
+
+  <div>
+    <button id="pick-device">选择 Rockchip 设备</button>
+  </div>
+
+  <div>
+    <input id="command" type="text" value="ld" style="width: 360px;" />
+    <button id="run">执行命令</button>
+  </div>
+
+  <pre id="output" style="background:#111;color:#0f0;padding:12px;min-height:220px;overflow:auto;"></pre>
+
+  <script type="module">
+    import { createRKDevelopToolWrapper } from '../../src/rkdeveloptool-wrapper.js';
+
+    const output = document.getElementById('output');
+    const fileNameEl = document.getElementById('file-name');
+    const pickFileBtn = document.getElementById('pick-file');
+    const pickDeviceBtn = document.getElementById('pick-device');
+    const runBtn = document.getElementById('run');
+    const commandInput = document.getElementById('command');
+
+    let selectedFile = null;
+
+    function appendLine(text) {
+      output.textContent += `${text}\n`;
+      output.scrollTop = output.scrollHeight;
+    }
+
+    appendLine('初始化中...');
+    const wrapper = await createRKDevelopToolWrapper({
+      runtime: 'browser',
+      onStdout: appendLine,
+      onStderr: appendLine,
+      onLogWrite: (event) => appendLine(`[log] ${event.path}: ${event.text}`),
+    });
+    appendLine('初始化完成');
+
+    pickFileBtn.addEventListener('click', async () => {
+      try {
+        selectedFile = await wrapper.pickFirmwareFile();
+        fileNameEl.textContent = selectedFile.name;
+      } catch (error) {
+        appendLine(String(error.message || error));
+      }
+    });
+
+    pickDeviceBtn.addEventListener('click', async () => {
+      try {
+        await wrapper.requestDevice([{ vendorId: 0x2207 }]);
+        appendLine('设备已授权');
+      } catch (error) {
+        appendLine(String(error.message || error));
+      }
+    });
+
+    runBtn.addEventListener('click', async () => {
+      const raw = commandInput.value.trim();
+      if (!raw) {
+        appendLine('请输入命令');
+        return;
+      }
+
+      const args = raw.split(/\s+/);
+      const options = {
+        requestDevice: true,
+      };
+
+      if (selectedFile) {
+        options.fileSource = selectedFile;
+        options.fileName = selectedFile.name;
+        options.replaceToken = '$FILE';
+      }
+
+      appendLine(`> ${args.join(' ')}`);
+      const result = await wrapper.runCommand(args, options);
+      appendLine(`exit=${result.exitCode}`);
+    });
+  </script>
+</body>
+</html>

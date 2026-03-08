@@ -1,0 +1,64 @@
+cmake_minimum_required(VERSION 3.16)
+project(rkdeveloptool_wasm LANGUAGES C CXX)
+
+set(RKTOOL_ROOT "${RKTOOL_ROOT}" CACHE PATH "Path to rktool-webusb repository root")
+if(RKTOOL_ROOT STREQUAL "")
+    set(RKTOOL_ROOT "${CMAKE_CURRENT_LIST_DIR}")
+endif()
+
+set(RKDEVELOPTOOL_DIR "${RKTOOL_ROOT}/rkdeveloptool")
+set(LIBUSB_ROOT "${RKTOOL_ROOT}/ref/libusb-1.0.29" CACHE PATH "Path to libusb source")
+set(LIBUSB_INCLUDE_DIR "${LIBUSB_ROOT}/libusb")
+set(LIBUSB_STATIC_LIB "${LIBUSB_ROOT}/build-wasm/libusb/.libs/libusb-1.0.a" CACHE FILEPATH "Path to wasm libusb static library")
+
+if(NOT EXISTS "${RKDEVELOPTOOL_DIR}")
+    message(FATAL_ERROR "rkdeveloptool source not found: ${RKDEVELOPTOOL_DIR}")
+endif()
+
+if(NOT EXISTS "${LIBUSB_STATIC_LIB}")
+    message(FATAL_ERROR "libusb static library not found: ${LIBUSB_STATIC_LIB}. Run ./build_wasm.sh to build it first.")
+endif()
+
+file(GLOB RKTOOL_SOURCES "${RKDEVELOPTOOL_DIR}/*.cpp")
+list(SORT RKTOOL_SOURCES)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+configure_file(
+    "${RKDEVELOPTOOL_DIR}/config.h.in"
+    "${CMAKE_BINARY_DIR}/config.h"
+)
+
+add_executable(rkdeveloptool ${RKTOOL_SOURCES})
+
+target_include_directories(rkdeveloptool PRIVATE
+    "${CMAKE_BINARY_DIR}"
+    "${RKDEVELOPTOOL_DIR}"
+    "${LIBUSB_INCLUDE_DIR}"
+)
+
+target_link_libraries(rkdeveloptool PRIVATE "${LIBUSB_STATIC_LIB}")
+
+target_link_options(rkdeveloptool PRIVATE
+    "-sUSE_PTHREADS=0"
+    "-sALLOW_MEMORY_GROWTH=1"
+    "-sNODERAWFS=1"
+    "-sFORCE_FILESYSTEM=1"
+    "-sASYNCIFY"
+    "--bind"
+    "-lworkerfs.js"
+    "-sMODULARIZE=1"
+    "-sEXPORT_ES6=1"
+    "-sEXPORT_NAME=createRKDevelopToolModule"
+    "-sINVOKE_RUN=0"
+    "-sEXPORTED_RUNTIME_METHODS=['FS','callMain']"
+    "-sEXPORTED_FUNCTIONS=['_main']"
+)
+
+set_target_properties(rkdeveloptool PROPERTIES
+    OUTPUT_NAME "rkdeveloptool"
+    SUFFIX ".js"
+    RUNTIME_OUTPUT_DIRECTORY "${RKTOOL_ROOT}/dist"
+)

@@ -1,0 +1,75 @@
+Index: rkdeveloptool/RKScan.cpp
+===================================================================
+--- rkdeveloptool.orig/RKScan.cpp
++++ rkdeveloptool/RKScan.cpp
+@@ -6,7 +6,24 @@
+  */
+ 
+ #include "RKScan.h"
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#endif
+ #define BUSID(id)  ((id & 0x0000FF00) >> 8)
++
++static void rk_usleep(unsigned int microseconds)
++{
++#ifdef __EMSCRIPTEN__
++	unsigned int milliseconds = microseconds / 1000;
++	if ((microseconds % 1000) != 0) {
++		milliseconds++;
++	}
++	emscripten_sleep(milliseconds);
++#else
++	usleep(microseconds);
++#endif
++}
++
+ int CRKScan::GetDEVICE_COUNTS()
+ {
+ 	return m_list.size();
+@@ -469,7 +486,7 @@ bool CRKScan::MutexWaitPrepare(UINT_VECT
+ 	iRet = iRet2 =0;
+ 	while ((time(&timeNow) - timeInit) <= 3) {
+ 		iRet = Search(RKUSB_MASKROM | RKUSB_LOADER | RKUSB_MSC);
+-		usleep(20000);
++		rk_usleep(20000);
+ 		iRet2 = Search(RKUSB_MASKROM | RKUSB_LOADER | RKUSB_MSC);
+ 		if (iRet2 == iRet) {
+ 			break;
+@@ -556,7 +573,7 @@ bool CRKScan::Wait(STRUCT_RKDEVICE_DESC
+ 			bRet = true;
+ 			break;
+ 		}
+-		usleep(50000);
++		rk_usleep(50000);
+ 	}
+ 
+ 	FreeDeviceList(deviceList);
+Index: rkdeveloptool/main.cpp
+===================================================================
+--- rkdeveloptool.orig/main.cpp
++++ rkdeveloptool/main.cpp
+@@ -3359,11 +3359,15 @@ int main(int argc, char* argv[])
+ 	int ret;
+ 	char szProgramProcPath[100];
+ 	char szProgramDir[256];
++	ssize_t nReadlinkLen = 0;
+ 	string strLogDir,strConfigFile;
+ 	struct stat statBuf;
+ 
+ 	g_ConfigItemVec.clear();
+ 
++#if defined(__EMSCRIPTEN__)
++	strcpy(szProgramDir, ".");
++#else
+ #ifndef __MINGW32__
+ 	snprintf(szProgramProcPath, sizeof(szProgramProcPath), "/proc/%d/exe", getpid());
+ 	if (readlink(szProgramProcPath, szProgramDir, 256) == -1)
+@@ -3378,6 +3382,7 @@ int main(int argc, char* argv[])
+ 		if (pSlash)
+ 			*pSlash = '\0';
+ 	}
++#endif
+ 
+ 	strLogDir = szProgramDir;
+ 	strLogDir +=  "/log/";

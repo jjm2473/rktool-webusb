@@ -1,0 +1,26 @@
+{
+  "name": "rktool-webusb",
+  "version": "0.1.0",
+  "description": "rkdeveloptool WebAssembly wrapper for WebUSB and Node.js",
+  "type": "module",
+  "main": "dist/rkdeveloptool.js",
+  "types": "src/rkdeveloptool-wrapper.d.ts",
+  "exports": {
+    ".": {
+      "import": "./src/rkdeveloptool-wrapper.js",
+      "types": "./src/rkdeveloptool-wrapper.d.ts"
+    }
+  },
+  "scripts": {
+    "build:wasm": "./build_wasm.sh",
+    "test": "node --test tests/**/*.test.js",
+    "test:build": "node tests/build.test.js",
+    "test:unit": "node --test tests/unit/*.test.js"
+  },
+  "optionalDependencies": {
+    "usb": "^2.16.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
