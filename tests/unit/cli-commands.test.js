@@ -740,7 +740,6 @@ test('real flow: ld runs real callMain and only mocks WebUSB', {
   skip: !hasBuiltWasmArtifacts(),
   concurrency: false,
 }, async () => {
-  console.debug('start ld real flow test');
   await runRealFlowInOrder(async () => {
     const { device, transportState } = createRockusbWebUsbDevice({
       vid: 0x2207,
@@ -783,10 +782,10 @@ test('real flow: ld runs real callMain and only mocks WebUSB', {
         webUsb,
         nodeUsb,
         onStdout: (text) => {
-          console.debug(`STDOUT: ${text}\n`);
+          console.debug(`STDOUT: ${text}`);
         },
         onStderr: (text) => {
-          console.debug(`STDERR: ${text}\n`);
+          console.debug(`STDERR: ${text}`);
         },
         onLogWrite: (text) => {
           console.debug(`Log: ${text}`);
@@ -815,7 +814,6 @@ test('real flow: db loader fixture mounts into VFS before command', {
   concurrency: false,
 }, async () => {
   await runRealFlowInOrder(async () => {
-    console.debug('\nflush\n');
     const loaderPath = path.join(projectRoot, 'tests', 'loader', 'MiniLoaderAll.bin');
     assert.equal(fs.existsSync(loaderPath), true, 'loader fixture must exist');
     const { device, transportState } = createRockusbWebUsbDevice({
@@ -834,10 +832,10 @@ test('real flow: db loader fixture mounts into VFS before command', {
         webUsb,
         nodeUsb,
         onStdout: (text) => {
-          console.debug(`STDOUT: ${text}\n`);
+          console.debug(`STDOUT: ${text}`);
         },
         onStderr: (text) => {
-          console.debug(`STDERR: ${text}\n`);
+          console.debug(`STDERR: ${text}`);
         },
         onLogWrite: (text) => {
           console.debug(`Log: ${text}`);
@@ -874,7 +872,6 @@ test('real flow: wl fw fixture mounts into VFS before command', {
   concurrency: false,
 }, async () => {
   await runRealFlowInOrder(async () => {
-    console.debug('\nflush\n');
     const loaderPath = path.join(projectRoot, 'tests', 'fw', 'radxa-e54c-spi-flash-image.img');
     assert.equal(fs.existsSync(loaderPath), true, 'loader fixture must exist');
     const { device, transportState } = createRockusbWebUsbDevice({
@@ -893,10 +890,10 @@ test('real flow: wl fw fixture mounts into VFS before command', {
         webUsb,
         nodeUsb,
         onStdout: (text) => {
-          console.debug(`STDOUT: ${text}\n`);
+          console.debug(`STDOUT: ${text}`);
         },
         onStderr: (text) => {
-          console.debug(`STDERR: ${text}\n`);
+          console.debug(`STDERR: ${text}`);
         },
         onLogWrite: (text) => {
           console.debug(`Log: ${text}`);
