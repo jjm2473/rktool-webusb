@@ -91,12 +91,116 @@ function createZeroDataView(length) {
   return new DataView(payload.buffer);
 }
 
+function toUint8Array(data) {
+  if (!data) {
+    return new Uint8Array(0);
+  }
+
+  if (data instanceof Uint8Array) {
+    return data;
+  }
+
+  if (data instanceof DataView) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data);
+  }
+
+  if (typeof data.length === 'number') {
+    return Uint8Array.from(data);
+  }
+
+  return new Uint8Array(0);
+}
+
+function readUint32LE(bytes, offset) {
+  if (bytes.byteLength < offset + 4) {
+    return 0;
+  }
+
+  return (
+    bytes[offset]
+    | (bytes[offset + 1] << 8)
+    | (bytes[offset + 2] << 16)
+    | (bytes[offset + 3] << 24)
+  ) >>> 0;
+}
+
+function createCswPayloadFromCbw(cbwPayload, status = 0) {
+  const cswPayload = new Uint8Array(13);
+  const cswView = new DataView(cswPayload.buffer);
+
+  cswView.setUint32(0, 0x53425355, true);
+  cswView.setUint32(4, readUint32LE(cbwPayload, 4), true);
+  cswView.setUint32(8, 0, true);
+  cswView.setUint8(12, status & 0xff);
+
+  return cswPayload;
+}
+
 function createRockusbWebUsbDevice(options = {}) {
   const vid = options.vid ?? 0x2207;
   const pid = options.pid ?? 0x320a;
   const bcdUsb = options.bcdUsb ?? 0x0200;
 //   const sessionIdSymbol = Symbol.for('libusb.session_id');
 //   const sessionId = options.sessionId ?? Math.floor(Math.random() * 0x7fffffff);
+  const CBW_SIGNATURE = 0x43425355;
+  const CBW_PACKET_LENGTH = 31;
+  const DIRECTION_IN = 0x80;
+  const MAX_MOCK_TRANSFER_LENGTH = 1024 * 1024;
+  const pendingInPayloads = [];
+
+  function queueInPayload(payload) {
+    const normalizedPayload = toUint8Array(payload);
+    if (normalizedPayload.byteLength === 0) {
+      return;
+    }
+
+    pendingInPayloads.push(Uint8Array.from(normalizedPayload));
+  }
+
+  function queueResponseForCbw(cbwPayload) {
+    const transferLength = readUint32LE(cbwPayload, 8);
+    const directionFlags = cbwPayload[12] || 0;
+    const safeTransferLength = Math.max(0, Math.min(transferLength, MAX_MOCK_TRANSFER_LENGTH));
+
+    if ((directionFlags & DIRECTION_IN) !== 0 && safeTransferLength > 0) {
+      queueInPayload(new Uint8Array(safeTransferLength));
+    }
+
+    queueInPayload(createCswPayloadFromCbw(cbwPayload));
+  }
+
+  function readQueuedInPayload(length) {
+    const parsedLength = Number(length);
+    const safeLength = Number.isFinite(parsedLength)
+      ? Math.max(0, Math.min(Math.trunc(parsedLength), MAX_MOCK_TRANSFER_LENGTH))
+      : 0;
+    const mergedPayload = new Uint8Array(safeLength);
+    let writeOffset = 0;
+
+    while (writeOffset < safeLength && pendingInPayloads.length > 0) {
+      const currentPayload = pendingInPayloads[0];
+      const remainingLength = safeLength - writeOffset;
+      const copyLength = Math.min(currentPayload.byteLength, remainingLength);
+      mergedPayload.set(currentPayload.subarray(0, copyLength), writeOffset);
+      writeOffset += copyLength;
+
+      if (copyLength === currentPayload.byteLength) {
+        pendingInPayloads.shift();
+      } else {
+        pendingInPayloads[0] = currentPayload.subarray(copyLength);
+      }
+    }
+
+    return new DataView(mergedPayload.buffer, mergedPayload.byteOffset, mergedPayload.byteLength);
+  }
 
   const transportState = {
     openCallCount: 0,
@@ -104,6 +208,7 @@ function createRockusbWebUsbDevice(options = {}) {
     controlTransferInCalls: [],
     transferInCalls: [],
     transferOutCalls: [],
+    pendingInPayloads,
   };
 
   const deviceDescriptor = [
@@ -166,17 +271,21 @@ function createRockusbWebUsbDevice(options = {}) {
     },
     async transferIn(endpointNumber, length) {
       transportState.transferInCalls.push({ endpointNumber, length });
-      return { status: 'ok', data: createZeroDataView(length) };
+      const dataView = pendingInPayloads.length > 0
+        ? readQueuedInPayload(length)
+        : createZeroDataView(length);
+      return { status: 'ok', data: dataView };
     },
     async transferOut(endpointNumber, data) {
-      transportState.transferOutCalls.push({ endpointNumber, length: byteLengthOf(data) });
-      return { status: 'ok', bytesWritten: byteLengthOf(data) };
-    },
-    async bulkTransferIn(endpointNumber, length) {
-      return this.transferIn(endpointNumber, length);
-    },
-    async bulkTransferOut(endpointNumber, data) {
-      return this.transferOut(endpointNumber, data);
+      const payload = toUint8Array(data);
+
+      transportState.transferOutCalls.push({ endpointNumber, length: payload.byteLength });
+
+      if (payload.byteLength === CBW_PACKET_LENGTH && readUint32LE(payload, 0) === CBW_SIGNATURE) {
+        queueResponseForCbw(payload);
+      }
+
+      return { status: 'ok', bytesWritten: payload.byteLength };
     },
     async claimInterface() { return 0;},
     async releaseInterface() {},
@@ -319,6 +428,52 @@ function createMockEmscriptenModule() {
     files,
   };
 }
+
+test('createRockusbWebUsbDevice returns CSW in transferIn after CBW transferOut', async () => {
+  const { device } = createRockusbWebUsbDevice();
+  const cbw = new Uint8Array(31);
+  const cbwView = new DataView(cbw.buffer);
+
+  cbwView.setUint32(0, 0x43425355, true);
+  cbwView.setUint32(4, 0x11223344, true);
+  cbwView.setUint32(8, 0, true);
+  cbwView.setUint8(12, 0x00);
+
+  const outResult = await device.transferOut(0x01, cbw);
+  assert.equal(outResult.status, 'ok');
+  assert.equal(outResult.bytesWritten, 31);
+
+  const inResult = await device.transferIn(0x81, 13);
+  assert.equal(inResult.status, 'ok');
+  assert.equal(inResult.data.byteLength, 13);
+  assert.equal(inResult.data.getUint32(0, true), 0x53425355);
+  assert.equal(inResult.data.getUint32(4, true), 0x11223344);
+  assert.equal(inResult.data.getUint32(8, true), 0);
+  assert.equal(inResult.data.getUint8(12), 0);
+});
+
+test('createRockusbWebUsbDevice queues IN payload then CSW for IN-direction CBW', async () => {
+  const { device } = createRockusbWebUsbDevice();
+  const cbw = new Uint8Array(31);
+  const cbwView = new DataView(cbw.buffer);
+
+  cbwView.setUint32(0, 0x43425355, true);
+  cbwView.setUint32(4, 0x55667788, true);
+  cbwView.setUint32(8, 8, true);
+  cbwView.setUint8(12, 0x80);
+
+  await device.transferOut(0x01, cbw);
+
+  const dataStage = await device.transferIn(0x81, 8);
+  assert.equal(dataStage.status, 'ok');
+  assert.deepEqual(Array.from(new Uint8Array(dataStage.data.buffer, dataStage.data.byteOffset, dataStage.data.byteLength)), [0, 0, 0, 0, 0, 0, 0, 0]);
+
+  const cswStage = await device.transferIn(0x81, 13);
+  assert.equal(cswStage.status, 'ok');
+  assert.equal(cswStage.data.getUint32(0, true), 0x53425355);
+  assert.equal(cswStage.data.getUint32(4, true), 0x55667788);
+  assert.equal(cswStage.data.getUint8(12), 0);
+});
 
 test('runCommand waits for async callMain completion', async () => {
   let capturedArgv = [];
