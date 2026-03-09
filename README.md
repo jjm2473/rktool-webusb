@@ -23,6 +23,8 @@
 
 ```bash
 npm run build:wasm:dev
+npm run build:wasm:debug
+npm run build:wasm:relwithdebinfo
 npm run build:wasm:release
 ```
 
@@ -31,7 +33,15 @@ npm run build:wasm:release
 - `rkdeveloptool.js`
 - `rkdeveloptool.wasm`
 
-默认构建会关闭 JS 混淆（`RK_WASM_JS_MINIFY=0`，内部使用 `--minify 0`），便于调试与排查问题。
+默认构建会关闭 JS 混淆（`RK_WASM_JS_MINIFY=0`，内部使用 `--minify 0`），便于排查问题。
+
+如需可调试构建（保留符号并生成 source map），可使用：
+
+```bash
+npm run build:wasm:debug
+```
+
+等效环境变量：`RK_WASM_BUILD_TYPE=Debug RK_WASM_DEBUG_INFO=1 RK_WASM_JS_MINIFY=0`。
 
 如需发布体积优化版本，可开启 JS 混淆：
 

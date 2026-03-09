@@ -703,3 +703,56 @@ test('real flow: db loader fixture mounts into VFS before command', {
     });
   });
 });
+
+
+test('real flow: wl fw fixture mounts into VFS before command', {
+  skip: !hasBuiltWasmArtifacts(),
+  concurrency: false,
+}, async () => {
+  await runRealFlowInOrder(async () => {
+    console.debug('\nflush\n');
+    const loaderPath = path.join(projectRoot, 'tests', 'fw', 'radxa-e54c-spi-flash-image.img');
+    assert.equal(fs.existsSync(loaderPath), true, 'loader fixture must exist');
+    const { device } = createRockusbWebUsbDevice({
+      vid: 0x2207,
+      pid: 0x320a,
+      bcdUsb: 0x0200,
+    });
+    const { nodeUsb, webUsb, state } = createMockUsb({
+      devices: [device],
+      requestDeviceResult: device,
+    });
+
+    await withMockNavigatorUsb(webUsb, async () => {
+      const wrapper = await createRKDevelopToolWrapper({
+        runtime: 'node',
+        webUsb,
+        nodeUsb,
+        onStdout: (text) => {
+          console.debug(`STDOUT: ${text}\n`);
+        },
+        onStderr: (text) => {
+          console.debug(`STDERR: ${text}\n`);
+        },
+        onLogWrite: (text) => {
+          console.debug(`Log: ${text}`);
+        },
+      });
+      console.debug('mount radxa-e54c-spi-flash-image.img\n');
+
+      const mountedPath = await wrapper.mountFile('radxa-e54c-spi-flash-image.img', loaderPath);
+      console.debug('mount radxa-e54c-spi-flash-image.img done\n');
+
+      assert.match(mountedPath, /^\/tmp\/mounts\/.+\/radxa-e54c-spi-flash-image\.img$/);
+
+      const result = await wrapper.runCommand(['wl', '0', mountedPath], {
+        requestDevice: true,
+        usbFilters: [{ vendorId: 0x2207 }],
+      });
+
+      assert.equal(typeof result.exitCode, 'number');
+      assert.equal(state.requestDeviceCallCount, 0);
+      assert.equal(state.getDevicesCallCount, 1);
+    });
+  });
+});
