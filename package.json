@@ -17,6 +17,8 @@
     "build:wasm:debug": "RK_WASM_BUILD_TYPE=Debug RK_WASM_DEBUG_INFO=1 RK_WASM_JS_MINIFY=0 ./build_wasm.sh",
     "build:wasm:relwithdebinfo": "RK_WASM_BUILD_TYPE=RelWithDebInfo RK_WASM_DEBUG_INFO=1 RK_WASM_JS_MINIFY=0 ./build_wasm.sh",
     "build:wasm:release": "RK_WASM_JS_MINIFY=1 ./build_wasm.sh",
+    "serve:http": "npx --yes http-server examples/browser -p 8080 -c-1 --cors",
+    "serve:https": "mkdir -p .cert && [ -f .cert/localhost.key ] || openssl req -x509 -newkey rsa:2048 -sha256 -nodes -keyout .cert/localhost.key -out .cert/localhost.crt -days 365 -subj '/CN=localhost' && npx --yes http-server examples/browser -p 8443 -S -C .cert/localhost.crt -K .cert/localhost.key -c-1 --cors",
     "test": "node --test tests/**/*.test.js",
     "test:build": "node tests/build.test.js",
     "test:unit": "node --test tests/unit/*.test.js"
