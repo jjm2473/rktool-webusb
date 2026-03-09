@@ -206,6 +206,7 @@ function createRockusbWebUsbDevice(options = {}) {
     openCallCount: 0,
     closeCallCount: 0,
     controlTransferInCalls: [],
+    controlTransferOutCalls: [],
     transferInCalls: [],
     transferOutCalls: [],
     pendingInPayloads,
@@ -267,6 +268,8 @@ function createRockusbWebUsbDevice(options = {}) {
       return { status: 'stall', data: toDataView([]) };
     },
     async controlTransferOut(_params, data) {
+      transportState.controlTransferOutCalls.push({ _params, length: byteLengthOf(data) });
+      console.debug(`Device controlTransferOut called (vid: ${vid.toString(16)}, pid: ${pid.toString(16)}, params: ${JSON.stringify(_params)}, length: ${byteLengthOf(data)})`);
       return { status: 'ok', bytesWritten: byteLengthOf(data) };
     },
     async transferIn(endpointNumber, length) {
@@ -799,7 +802,7 @@ test('real flow: ld runs real callMain and only mocks WebUSB', {
       assert.equal(typeof result.exitCode, 'number');
       assert.equal(state.requestDeviceCallCount, 0);
       assert.equal(state.getDevicesCallCount, 1);
-      assert.equal(transportState.openCallCount > 0, true);
+      assert.equal(transportState.openCallCount, 1);
       assert.equal(transportState.controlTransferInCalls.length > 0, true);
       assert.equal(usbEventAfterRunResolved, false);
     });
@@ -815,7 +818,7 @@ test('real flow: db loader fixture mounts into VFS before command', {
     console.debug('\nflush\n');
     const loaderPath = path.join(projectRoot, 'tests', 'loader', 'MiniLoaderAll.bin');
     assert.equal(fs.existsSync(loaderPath), true, 'loader fixture must exist');
-    const { device } = createRockusbWebUsbDevice({
+    const { device, transportState } = createRockusbWebUsbDevice({
       vid: 0x2207,
       pid: 0x320a,
       bcdUsb: 0x0200,
@@ -852,9 +855,15 @@ test('real flow: db loader fixture mounts into VFS before command', {
         usbFilters: [{ vendorId: 0x2207 }],
       });
 
+      console.debug('db command completed with', result.exitCode);
+      console.debug('transport statistic: open=', transportState.openCallCount, 'cout=', transportState.controlTransferOutCalls.length, 'cin=', transportState.controlTransferInCalls.length);
+
       assert.equal(typeof result.exitCode, 'number');
       assert.equal(state.requestDeviceCallCount, 0);
       assert.equal(state.getDevicesCallCount, 1);
+      assert.equal(transportState.openCallCount, 2);
+      assert.equal(transportState.controlTransferOutCalls.length > 0, true);
+      assert.equal(transportState.controlTransferInCalls.length > 0, true);
     });
   });
 });
@@ -868,7 +877,7 @@ test('real flow: wl fw fixture mounts into VFS before command', {
     console.debug('\nflush\n');
     const loaderPath = path.join(projectRoot, 'tests', 'fw', 'radxa-e54c-spi-flash-image.img');
     assert.equal(fs.existsSync(loaderPath), true, 'loader fixture must exist');
-    const { device } = createRockusbWebUsbDevice({
+    const { device, transportState } = createRockusbWebUsbDevice({
       vid: 0x2207,
       pid: 0x320a,
       bcdUsb: 0x0200,
@@ -908,9 +917,16 @@ test('real flow: wl fw fixture mounts into VFS before command', {
         replaceToken: '$FILE',
       });
 
+      console.debug('wl command completed with', result.exitCode);
+      console.debug('transport statistic: open=', transportState.openCallCount, 'out=', transportState.transferOutCalls.length, 'in=', transportState.transferInCalls.length);
+
       assert.equal(typeof result.exitCode, 'number');
       assert.equal(state.requestDeviceCallCount, 0);
       assert.equal(state.getDevicesCallCount, 1);
+      assert.equal(transportState.openCallCount, 2);
+      assert.equal(transportState.controlTransferInCalls.length > 0, true);
+      assert.equal(transportState.transferOutCalls.length > 0, true);
+      assert.equal(transportState.transferInCalls.length > 0, true);
     });
   });
 });

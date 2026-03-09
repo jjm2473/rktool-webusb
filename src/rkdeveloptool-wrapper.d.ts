@@ -10,8 +10,6 @@ export interface RunCommandOptions {
 
 export interface RunCommandResult {
   exitCode: number;
-  stdout: string;
-  stderr: string;
 }
 
 export interface RkdeveloptoolWrapper {
