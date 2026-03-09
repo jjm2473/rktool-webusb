@@ -893,16 +893,19 @@ test('real flow: wl fw fixture mounts into VFS before command', {
           console.debug(`Log: ${text}`);
         },
       });
-      console.debug('mount radxa-e54c-spi-flash-image.img\n');
+      // console.debug('mount radxa-e54c-spi-flash-image.img\n');
 
-      const mountedPath = await wrapper.mountFile('radxa-e54c-spi-flash-image.img', loaderPath);
-      console.debug('mount radxa-e54c-spi-flash-image.img done\n');
+      // const mountedPath = await wrapper.mountFile('radxa-e54c-spi-flash-image.img', loaderPath);
+      // console.debug('mount radxa-e54c-spi-flash-image.img done\n');
 
-      assert.match(mountedPath, /^\/tmp\/mounts\/.+\/radxa-e54c-spi-flash-image\.img$/);
+      // assert.match(mountedPath, /^\/tmp\/mounts\/.+\/radxa-e54c-spi-flash-image\.img$/);
 
-      const result = await wrapper.runCommand(['wl', '0', mountedPath], {
+      const result = await wrapper.runCommand(['wl', '0', '$FILE'], {
         requestDevice: true,
         usbFilters: [{ vendorId: 0x2207 }],
+        fileName: 'radxa-e54c-spi-flash-image.img',
+        fileSource: loaderPath,
+        replaceToken: '$FILE',
       });
 
       assert.equal(typeof result.exitCode, 'number');
