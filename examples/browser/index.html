@@ -112,7 +112,7 @@
     });
     dlLoaderBtn.addEventListener('click', async () => {
       try {
-        await wrapper.runCommand(['db', selectedLoader]);
+        await wrapper.runCommand(['db', selectedLoader], {requestDevice: !usbConnected});
         appendLine('loader 下载完成，可能要点击“选择 Rockchip 设备”按钮重新连接');
       } catch (error) {
         appendLine(String(error.message || error));
@@ -133,14 +133,44 @@
     });
 
     dlFileBtn.addEventListener('click', async () => {
+      let result;
       try {
-        await wrapper.runCommand(['wl', '0', '$FILE'], {
+        if (!usbConnected) {
+          window.rkdev = await wrapper.requestDevice([{ vendorId: 0x2207 }]);
+          appendLine(`设备已授权: ${window.rkdev.productName} (${window.rkdev.productId.toString(16)})`);
+          usbConnected = true;
+        }
+
+        if (!window.rkdev.serialNumber) {
+          if (selectedLoader == null) {
+            appendLine('MASKROM 模式需要选择 Loader 文件！');
+            return;
+          }
+          appendLine('下载 Loader 中...');
+          result = await wrapper.runCommand(['db', selectedLoader]);
+          if (result.exitCode === 0) {
+            appendLine('Loader 下载完成');
+          } else {
+            appendLine('Loader 下载失败');
+            return;
+          }
+          // Loader 下载完成后设备会重新连接，等1秒再继续操作
+          await new Promise((resolve)=>{setTimeout(resolve, 1000)})
+        }
+        
+        appendLine('下载固件中...');
+        result = await wrapper.runCommand(['wl', '0', '$FILE'], {
           requestDevice: !usbConnected,
           fileSource: selectedFile,
           fileName: selectedFile.name,
           replaceToken: '$FILE',
         });
-        appendLine('固件下载完成');
+        if (result.exitCode === 0) {
+          appendLine('固件下载成功');
+        } else {
+          appendLine('固件下载失败');
+          return;
+        }
       } catch (error) {
         appendLine(String(error.message || error));
       }
