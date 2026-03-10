@@ -30,8 +30,6 @@ export interface WrapperCreateOptions {
   moduleFactory?: (options?: unknown) => Promise<unknown>;
   fsOptions?: Record<string, unknown>;
   usbFilters?: Array<{ vendorId?: number; productId?: number }>;
-  nodeUsb?: { getDeviceList(): unknown[] };
-  loadNodeUsb?: () => unknown | Promise<unknown>;
   webUsb?: {
     requestDevice(options: { filters: Array<{ vendorId?: number; productId?: number }> }): Promise<unknown>;
     getDevices(): Promise<unknown[]>;

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRKDevelopToolWrapper } from '../../src/rkdeveloptool-wrapper.js';
 
-test('node real ld command with USB device support', async () => {
+test('node ld command with real USB device', async () => {
 	const wrapper = await createRKDevelopToolWrapper({
 		runtime: 'node',
 		onStdout: (line) => {

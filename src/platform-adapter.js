@@ -19,8 +19,6 @@ export async function createPlatformAdapter(options = {}) {
   const usbAdapter = await createUsbAdapter({
     runtime,
     filters: usbFilters,
-    nodeUsb: options.nodeUsb,
-    loadNodeUsb: options.loadNodeUsb,
     webUsb: options.webUsb,
   });
 

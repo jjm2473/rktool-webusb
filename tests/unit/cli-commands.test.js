@@ -18,14 +18,6 @@ const DEFAULT_MOCK_USB_DEVICE = {
   },
 };
 
-function createMockNodeUsb(devices = [DEFAULT_MOCK_USB_DEVICE]) {
-  return {
-    getDeviceList() {
-      return devices;
-    },
-  };
-}
-
 function createMockUsb(options = {}) {
   const devices = options.devices || [{ vendorId: 0x2207, productId: 0x350b }];
   const state = {
@@ -53,11 +45,6 @@ function createMockUsb(options = {}) {
         return devices;
       },
     },
-    nodeUsb: {
-      getDeviceList() {
-        return devices;
-      },
-    }
   };
 }
 
@@ -308,34 +295,12 @@ function createRockusbWebUsbDevice(options = {}) {
 function createUnitTestWrapperOptions(overrides = {}) {
   return {
     runtime: 'node',
-    nodeUsb: createMockNodeUsb(),
-    loadNodeUsb: async () => {
-      throw new Error('loadNodeUsb should not be called in unit tests');
-    },
     ...overrides,
   };
 }
 
 function hasBuiltWasmArtifacts() {
   return fs.existsSync(distJsPath) && fs.existsSync(distWasmPath);
-}
-
-function hasWorkerFsSupport() {
-  return typeof FileReaderSync === 'function';
-}
-
-function createBrowserFileFromPath(filePath, fileName = path.basename(filePath)) {
-  const bytes = fs.readFileSync(filePath);
-  if (typeof File === 'function') {
-    return new File([bytes], fileName, { type: 'application/octet-stream' });
-  }
-
-  const blob = new Blob([bytes], { type: 'application/octet-stream' });
-  Object.defineProperty(blob, 'name', {
-    value: fileName,
-    configurable: true,
-  });
-  return blob;
 }
 
 async function withMockNavigatorUsb(webUsb, callback) {
@@ -695,7 +660,7 @@ test('real flow: ld runs real callMain and only mocks WebUSB', {
       return originalControlTransferIn(...args);
     };
 
-    const { nodeUsb, webUsb, state } = createMockUsb({
+    const { webUsb, state } = createMockUsb({
       devices: [device],
       requestDeviceResult: device,
     });
@@ -709,7 +674,6 @@ test('real flow: ld runs real callMain and only mocks WebUSB', {
       const wrapper = await createRKDevelopToolWrapper({
         runtime: 'node',
         webUsb,
-        nodeUsb,
         onStdout: (text) => {
           console.debug(`STDOUT: ${text}`);
         },
@@ -750,7 +714,7 @@ test('real flow: db loader fixture mounts into VFS before command', {
       pid: 0x320a,
       bcdUsb: 0x0200,
     });
-    const { nodeUsb, webUsb, state } = createMockUsb({
+    const { webUsb, state } = createMockUsb({
       devices: [device],
       requestDeviceResult: device,
     });
@@ -759,7 +723,6 @@ test('real flow: db loader fixture mounts into VFS before command', {
       const wrapper = await createRKDevelopToolWrapper({
         runtime: 'node',
         webUsb,
-        nodeUsb,
         onStdout: (text) => {
           console.debug(`STDOUT: ${text}`);
         },
@@ -808,7 +771,7 @@ test('real flow: wl fw fixture mounts into VFS before command', {
       pid: 0x320a,
       bcdUsb: 0x0200,
     });
-    const { nodeUsb, webUsb, state } = createMockUsb({
+    const { webUsb, state } = createMockUsb({
       devices: [device],
       requestDeviceResult: device,
     });
@@ -817,7 +780,6 @@ test('real flow: wl fw fixture mounts into VFS before command', {
       const wrapper = await createRKDevelopToolWrapper({
         runtime: 'node',
         webUsb,
-        nodeUsb,
         onStdout: (text) => {
           console.debug(`STDOUT: ${text}`);
         },
