@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>rkdeveloptool Web 版</title>
+  <style>
+    body {
+      padding-bottom: 40px;
+    }
+
+    footer {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 8px 12px;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <h1>rkdeveloptool Web 版</h1>
+  <details>
+    <summary>说明</summary>
+    <h3>仅支持 Chrome/Edge 等基于 Chromium 的浏览器</h3>
+    <h5>不建议在 Windows 下使用，因为 Windows 下有 Rockchip 官方的图形刷机工具。且可能需要安装 WinUSB 驱动，驱动又可能跟 Rockchip 驱动冲突。自行评估风险</h5>
+    <h4>一般刷机步骤：</h4>
+    <ol>
+      <li>设备进入 MASKROM 或 Loader 模式（通常是开机时按住某个按键，具体请搜索设备型号+MASKROM/Loader）</li>
+      <li>设备通过 USB 连接到电脑（通常是设备的 Type-C 接口，也可能是 A 口）</li>
+      <li>选择 Loader 文件（ MASKROM 模式需要）</li>
+      <li>选择固件</li>
+      <li>点击刷写固件按钮，此过程可能会弹出设备授权请求（MASKROM 模式最多两次），如果设备列表为空，请检查设备是否正确连接（如 USB 口是否正确，设备是否进入正确模式）</li>
+      <li>刷写完成后在“电源”菜单中选择相应操作（如重启或关机），或手动操作设备</li>
+    </ol>
+    <h5>如需检查设备状态，点击“选择 Rockchip 设备”按钮，列表为空说明没有设备连接或设备未进入正确模式。</h5>
+    <h5>如需刷写到不同的存储器，例如有 SPIROM 和 eMMC 的设备希望写入 eMMC，先加载Loader，然后切换存储，最后再刷写固件。</h5>
+  </details>
+
+  <div>
+    <label for="pick-loader">选择Loader</label>
+    <input id="pick-loader" type="file" accept=".bin" />
+  </div>
+  <div>
+    <label for="pick-file">选择固件</label>
+    <input id="pick-file" type="file" accept=".bin,.img" />
+  </div>
+
+  <div>
+    <button id="pick-device">选择 Rockchip 设备</button><span id="device-info"></span>
+  </div>
+
+  <div>
+    <button id="dl-loader" disabled>加载Loader</button>
+    <button id="dl-file" disabled>刷写固件</button>
+    <select id="power">
+      <option value="">电源</option>
+      <option value="reboot">重启</option>
+      <option value="reboot-maskrom">重启到MASKROM</option>
+      <option value="power-off">关机</option>
+    </select>
+    <select id="change-storage">
+      <option value="">切换存储</option>
+      <option value="emmc">eMMC</option>
+      <option value="sd">SD</option>
+      <option value="spirom">SPIROM</option>
+    </select>
+  </div>
+  <div>
+    <input id="command" type="text" value="ld" style="width: 360px;" />
+    <button id="run">执行命令</button>
+  </div>
+  <div>
+    <button id="clear-output">清空日志</button>
+    <button id="copy-output">复制日志</button>
+    <button id="download-output">下载日志</button>
+    <span id="output-action-tip" aria-live="polite"></span>
+  </div>
+
+  <pre id="output" style="background:#111;color:#0f0;padding:12px;min-height:220px;max-height:400px;overflow:auto;"></pre>
+
+  <footer>
+    <a href="https://github.com/jjm2473/rktool-webusb" target="_blank" rel="noopener noreferrer">GitHub: jjm2473/rktool-webusb</a>
+  </footer>
+
+  <script type="module">
+    import { createRKToolWorker } from './src/worker-proxy.js';
+
+    const output = document.getElementById('output');
+    const pickLoaderInput = document.getElementById('pick-loader');
+    const dlLoaderBtn = document.getElementById('dl-loader');
+    const pickFileInput = document.getElementById('pick-file');
+    const dlFileBtn = document.getElementById('dl-file');  
+    const pickDeviceBtn = document.getElementById('pick-device');
+    const deviceInfo = document.getElementById('device-info');
+    const powerSelect = document.getElementById('power');
+    const changeStorageSelect = document.getElementById('change-storage');
+    const runBtn = document.getElementById('run');
+    const commandInput = document.getElementById('command');
+    const clearOutputBtn = document.getElementById('clear-output');
+    const copyOutputBtn = document.getElementById('copy-output');
+    const downloadOutputBtn = document.getElementById('download-output');
+    const outputActionTip = document.getElementById('output-action-tip');
+
+    let selectedLoader = null;
+    let selectedFile = null;
+    let usbConnected = false;
+    let outputActionTipTimer = null;
+
+    function showOutputActionTip(text) {
+      outputActionTip.textContent = text;
+      if (outputActionTipTimer) {
+        clearTimeout(outputActionTipTimer);
+      }
+      outputActionTipTimer = setTimeout(() => {
+        outputActionTip.textContent = '';
+        outputActionTipTimer = null;
+      }, 3000);
+    }
+
+    function appendLine(text) {
+      output.textContent += `${text}\n`;
+      output.scrollTop = output.scrollHeight;
+    }
+
+    function clearOutput() {
+      output.textContent = '';
+      showOutputActionTip('日志已清空');
+    }
+    clearOutputBtn.addEventListener('click', clearOutput);
+
+    function getOutputText() {
+      return output.textContent || '';
+    }
+
+    function createLogFileName() {
+      const now = new Date();
+      const pad = (value) => String(value).padStart(2, '0');
+      return `rktool-web-log-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.txt`;
+    }
+
+    async function copyOutput() {
+      const text = getOutputText();
+      if (!text.trim()) {
+        showOutputActionTip('日志为空，无需复制');
+        return;
+      }
+
+      try {
+        if (window.isSecureContext && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const selection = window.getSelection();
+          if (!selection) {
+            throw new Error('当前环境不支持 Selection API');
+          }
+
+          const range = document.createRange();
+          range.selectNodeContents(output);
+          selection.removeAllRanges();
+          selection.addRange(range);
+
+          const copied = document.execCommand('copy');
+          selection.removeAllRanges();
+          if (!copied) {
+            throw new Error('浏览器拒绝复制');
+          }
+        }
+        showOutputActionTip('日志已复制');
+      } catch (error) {
+        showOutputActionTip(`复制日志失败: ${String(error.message || error)}`);
+      }
+    }
+
+    function downloadOutput() {
+      const text = getOutputText();
+      if (!text.trim()) {
+        showOutputActionTip('日志为空，无需下载');
+        return;
+      }
+
+      const fileName = createLogFileName();
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showOutputActionTip(`日志下载已开始: ${fileName}`);
+    }
+
+    copyOutputBtn.addEventListener('click', () => {
+      void copyOutput();
+    });
+    downloadOutputBtn.addEventListener('click', downloadOutput);
+
+    async function onUsbConnect(device) {
+      appendLine(`设备已连接: ${device.productName} (0x${device.productId.toString(16)})`);
+      window.rkdev = device;
+      usbConnected = true;
+      deviceInfo.textContent = `${device.productName} (0x${device.productId.toString(16)})`;
+      await wrapper.runCommand(['ld'], {requestDevice: false});
+    }
+    function onUsbDisconnect(device) {
+      appendLine(`设备已断开: ${device.productName} (0x${device.productId.toString(16)})`);
+      usbConnected = false;
+      deviceInfo.textContent = '';
+    }
+
+    appendLine('初始化中...');
+    if (!navigator.usb) {
+      appendLine('当前浏览器不支持 WebUSB API，请使用支持 WebUSB 的浏览器（如 Chrome/Edge）');
+      throw new Error('WebUSB not supported');
+    }
+    navigator.usb.addEventListener("connect", async (event) => {
+      await onUsbConnect(event.device);
+    });
+    navigator.usb.addEventListener("disconnect", (event) => {
+      onUsbDisconnect(event.device);
+    });
+    setTimeout(() => {
+      navigator.usb.getDevices().then(async (devices) => {
+        if (devices.length > 0) {
+          await onUsbConnect(devices[0]);
+        }
+      });
+    }, 500);
+    const appendStdio = (function(){
+      let last = '';
+      return function(text) {
+        if (last == text) {
+          return;
+        }
+        last = text;
+        appendLine(text);
+      };
+    })();
+
+    async function requestDevice() {
+      const device = await navigator.usb.requestDevice({
+        filters: [{ vendorId: 0x2207 }],
+      });
+      await onUsbConnect(device);
+      return device;
+    }
+
+    const wrapper = await createRKToolWorker({
+      workerPath: './src/rktool-worker.js',
+      requestDevice,
+      onStdout: appendLine,
+      onStderr: appendLine,
+      onLogWrite: (text) => appendLine(`[log] ${text}`),
+    });
+    appendLine('初始化完成（运行在 Worker 中）');
+
+    pickLoaderInput.addEventListener('change', async () => {
+      try {
+        const loader = pickLoaderInput.files?.[0] || null;
+        if (!loader) {
+          selectedLoader = null;
+          dlLoaderBtn.disabled = true;
+          return;
+        }
+        selectedLoader = await wrapper.mountFile('MiniLoaderAll.bin', loader);
+        appendLine(`已选择Loader: ${loader.name} (${loader.size} bytes)`);
+        dlLoaderBtn.disabled = false;
+      } catch (error) {
+        appendLine(String(error.message || error));
+      }
+    });
+    dlLoaderBtn.addEventListener('click', async () => {
+      if (usbConnected && window.rkdev.serialNumber) {
+        if (!confirm('当前设备看起来已加载 Loader，重复加载 Loader 可能会卡死，是否继续？'))
+          return;
+        appendLine('强制重新加载 Loader 中...，如果卡死请刷新页面');
+      }
+      try {
+        await wrapper.runCommand(['db', selectedLoader], {requestDevice: !usbConnected});
+        appendLine('Loader 加载完成，可能要点击“选择 Rockchip 设备”按钮重新连接');
+      } catch (error) {
+        appendLine(String(error.message || error));
+      }
+    });
+
+    pickFileInput.addEventListener('change', async () => {
+      try {
+        selectedFile = pickFileInput.files?.[0] || null;
+        if (!selectedFile) {
+          dlFileBtn.disabled = true;
+          return;
+        }
+        appendLine(`已选择固件: ${selectedFile.name} (${selectedFile.size} bytes)`);
+        dlFileBtn.disabled = false;
+      } catch (error) {
+        appendLine(String(error.message || error));
+      }
+    });
+
+    dlFileBtn.addEventListener('click', async () => {
+      let result;
+      try {
+        if (!usbConnected) {
+          await requestDevice();
+        }
+
+        if (!window.rkdev.serialNumber) {
+          if (selectedLoader == null) {
+            appendLine('MASKROM 模式需要选择 Loader 文件！');
+            return;
+          }
+          appendLine('加载 Loader 中...');
+          result = await wrapper.runCommand(['db', selectedLoader]);
+          if (result.exitCode === 0) {
+            appendLine('Loader 加载完成');
+          } else {
+            appendLine('Loader 加载失败');
+            return;
+          }
+          // Loader 加载完成后设备会重新连接，需要重新检查usbConnected
+          // 在 worker 里执行 sleep 是为了防止浏览器的安全机制认为新的 requestDevice 请求不是用户触发的，从而被拒绝（SecurityError）
+          await wrapper.sleep(500);
+          if (!usbConnected) {
+            appendLine('设备ID可能发生变化，请重新选择设备（名称一般是USB-MSC，关闭浏览器之前，同一设备只需授权一次）...');
+            await requestDevice();
+          }
+        }
+
+        appendLine('刷写固件中...');
+        const startTime = new Date().getTime();
+        result = await wrapper.runCommand(['wl', '0', '$FILE'], {
+          fileSource: selectedFile,
+          fileName: selectedFile.name,
+          replaceToken: '$FILE',
+        });
+        const endTime = new Date().getTime();
+        const duration = (endTime - startTime) / 1000;
+        if (result.exitCode === 0) {
+          appendLine(`固件刷写成功，耗时 ${duration.toFixed(2)} 秒`);
+        } else {
+          appendLine('固件刷写失败');
+          return;
+        }
+      } catch (error) {
+        appendLine(String(error.message || error));
+      }
+    });
+
+    pickDeviceBtn.addEventListener('click', async () => {
+      let device;
+      try {
+        await requestDevice();
+      } catch (error) {
+        appendLine(String(error.message || error));
+      }
+    });
+
+    powerSelect.addEventListener('change', async () => {
+      const action = powerSelect.value;
+      powerSelect.value = "";
+      const options = {
+        requestDevice: !usbConnected,
+      };
+      if (action === '')
+        return;
+      try {
+        let cmdArgs = null;
+        if (action === 'reboot') {
+          cmdArgs = ['rd'];
+        } else if (action === 'reboot-maskrom') {
+          cmdArgs = ['rd', '3'];
+        } else if (action === 'power-off') {
+          cmdArgs = ['rd', '2'];
+        } else {
+          return;
+        }
+        let result = await wrapper.runCommand(cmdArgs, options);
+        appendLine(`已执行: 电源 ${action} 结果 ${result.exitCode==0 ? '成功' : '失败'}`);
+      } catch (error) {
+        appendLine(String(error.message || error));
+      }
+    });
+
+    changeStorageSelect.addEventListener('change', async () => {
+      const action = changeStorageSelect.value;
+      changeStorageSelect.value = "";
+      const options = {
+        requestDevice: !usbConnected,
+      };
+      if (action === '')
+        return;
+      try {
+        let cmdArgs = null;
+        if (action === 'emmc') {
+          cmdArgs = ['cs', '1'];
+        } else if (action === 'sd') {
+          cmdArgs = ['cs', '2'];
+        } else if (action === 'spirom') {
+          cmdArgs = ['cs', '9'];
+        } else {
+          return;
+        }
+        let result = await wrapper.runCommand(cmdArgs, options);
+        appendLine(`已执行: 切换存储到 ${action} 结果 ${result.exitCode==0 ? '成功' : '失败'}`);
+      } catch (error) {
+        appendLine(String(error.message || error));
+      }
+    });
+
+    runBtn.addEventListener('click', async () => {
+      const raw = commandInput.value.trim();
+      if (!raw) {
+        appendLine('请输入命令');
+        return;
+      }
+
+      const args = raw.split(/\s+/);
+      const options = {
+        requestDevice: !usbConnected,
+      };
+
+      if (selectedFile) {
+        options.fileSource = selectedFile;
+        options.fileName = selectedFile.name;
+        options.replaceToken = '$FILE';
+      }
+
+      appendLine(`> ${args.join(' ')}`);
+      const result = await wrapper.runCommand(args, options);
+      appendLine(`exit=${result.exitCode}`);
+    });
+  </script>
+</body>
+</html>
