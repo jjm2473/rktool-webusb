@@ -9,7 +9,6 @@ export class RKToolWorkerProxy {
     this.onStdout = null;
     this.onStderr = null;
     this.onLogWrite = null;
-    this.runtime = 'browser';
     this.initialized = false;
 
     this.worker.addEventListener('message', (event) => {
@@ -72,6 +71,7 @@ export class RKToolWorkerProxy {
     this.onStdout = options.onStdout || null;
     this.onStderr = options.onStderr || null;
     this.onLogWrite = options.onLogWrite || null;
+    this.requestDevice = options.requestDevice || this.requestDeviceFallback;
 
     const result = await this.sendRequest('init', {
       runtime: options.runtime || 'browser',
@@ -79,18 +79,17 @@ export class RKToolWorkerProxy {
       wasmUrl: options.wasmUrl,
     });
 
-    this.runtime = result.runtime;
     this.initialized = true;
   }
 
-  async requestDevice(filters) {
+  async requestDeviceFallback() {
     // 在主线程中请求 USB 设备（WebUSB API 只能在主线程使用）
     if (!navigator.usb) {
       throw new Error('WebUSB not supported');
     }
 
     const device = await navigator.usb.requestDevice({
-      filters: filters || [{ vendorId: 0x2207 }],
+      filters: [{ vendorId: 0x2207 }],
     });
 
     return device;
@@ -114,7 +113,7 @@ export class RKToolWorkerProxy {
   async runCommand(args, options = {}) {
     // 如果需要请求设备，在主线程中处理
     if (options.requestDevice) {
-      await this.requestDevice(options.usbFilters);
+      await this.requestDevice();
     }
 
     // 将命令发送到 Worker 执行
@@ -143,10 +142,8 @@ export async function createRKToolWorker(options = {}) {
   const proxy = new RKToolWorkerProxy(workerPath);
   
   await proxy.init(options);
-  
+
   return {
-    runtime: proxy.runtime,
-    requestDevice: (filters) => proxy.requestDevice(filters),
     getDevices: () => proxy.getDevices(),
     mountFile: (name, source) => proxy.mountFile(name, source),
     runCommand: (args, options) => proxy.runCommand(args, options),

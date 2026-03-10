@@ -9,16 +9,16 @@
   <h1>rkdeveloptool WebUSB 示例</h1>
 
   <div>
-    <label for="pick-loader">选择loader文件</label>
+    <label for="pick-loader">选择Loader</label>
     <input id="pick-loader" type="file" accept=".bin" />
   </div>
   <div>
-    <label for="pick-file">选择固件文件</label>
+    <label for="pick-file">选择固件</label>
     <input id="pick-file" type="file" accept=".bin,.img" />
   </div>
 
   <div>
-    <button id="pick-device">选择 Rockchip 设备</button>
+    <button id="pick-device">选择 Rockchip 设备</button><span id="device-info"></span>
   </div>
 
   <div>
@@ -41,6 +41,9 @@
     <input id="command" type="text" value="ld" style="width: 360px;" />
     <button id="run">执行命令</button>
   </div>
+  <div>
+    <button id="clear-output">清空输出</button>
+  </div>
 
   <pre id="output" style="background:#111;color:#0f0;padding:12px;min-height:220px;max-height:400px;overflow:auto;"></pre>
 
@@ -53,10 +56,12 @@
     const pickFileInput = document.getElementById('pick-file');
     const dlFileBtn = document.getElementById('dl-file');  
     const pickDeviceBtn = document.getElementById('pick-device');
+    const deviceInfo = document.getElementById('device-info');
     const powerSelect = document.getElementById('power');
     const changeStorageSelect = document.getElementById('change-storage');
     const runBtn = document.getElementById('run');
     const commandInput = document.getElementById('command');
+    const clearOutputBtn = document.getElementById('clear-output');
 
     let selectedLoader = null;
     let selectedFile = null;
@@ -67,16 +72,42 @@
       output.scrollTop = output.scrollHeight;
     }
 
-    appendLine('初始化中...');
-    navigator.usb.addEventListener("connect", (event) => {
-      appendLine(`设备已连接: ${event.device.productName} (${event.device.productId.toString(16)})`);
-      window.rkdev = event.device;
+    function clearOutput() {
+      output.textContent = '';
+    }
+    clearOutputBtn.addEventListener('click', clearOutput);
+
+    async function onUsbConnect(device) {
+      appendLine(`设备已连接: ${device.productName} (0x${device.productId.toString(16)})`);
+      window.rkdev = device;
       usbConnected = true;
+      deviceInfo.textContent = `${device.productName} (0x${device.productId.toString(16)})`;
+      await wrapper.runCommand(['ld'], {requestDevice: false});
+    }
+    function onUsbDisconnect(device) {
+      appendLine(`设备已断开: ${device.productName} (0x${device.productId.toString(16)})`);
+      usbConnected = false;
+      deviceInfo.textContent = '';
+    }
+
+    appendLine('初始化中...');
+    if (!navigator.usb) {
+      appendLine('当前浏览器不支持 WebUSB API，请使用支持 WebUSB 的浏览器（如 Chrome/Edge）');
+      throw new Error('WebUSB not supported');
+    }
+    navigator.usb.addEventListener("connect", async (event) => {
+      await onUsbConnect(event.device);
     });
     navigator.usb.addEventListener("disconnect", (event) => {
-      appendLine(`设备已断开: ${event.device.productName} (${event.device.productId.toString(16)})`);
-      usbConnected = false;
+      onUsbDisconnect(event.device);
     });
+    setTimeout(() => {
+      navigator.usb.getDevices().then(async (devices) => {
+        if (devices.length > 0) {
+          await onUsbConnect(devices[0]);
+        }
+      });
+    }, 500);
     const appendStdio = (function(){
       let last = '';
       return function(text) {
@@ -88,10 +119,18 @@
       };
     })();
 
+    async function requestDevice() {
+      const device = await navigator.usb.requestDevice({
+        filters: [{ vendorId: 0x2207 }],
+      });
+      await onUsbConnect(device);
+      return device;
+    }
+
     const wrapper = await createRKToolWorker({
-      runtime: 'browser',
-      onStdout: appendStdio,
-      onStderr: appendStdio,
+      requestDevice,
+      onStdout: appendLine,
+      onStderr: appendLine,
       onLogWrite: (text) => appendLine(`[log] ${text}`),
     });
     appendLine('初始化完成（运行在 Worker 中）');
@@ -105,12 +144,18 @@
           return;
         }
         selectedLoader = await wrapper.mountFile('MiniLoaderAll.bin', loader);
+        appendLine(`已选择Loader: ${loader.name} (${loader.size} bytes)`);
         dlLoaderBtn.disabled = false;
       } catch (error) {
         appendLine(String(error.message || error));
       }
     });
     dlLoaderBtn.addEventListener('click', async () => {
+      if (usbConnected && window.rkdev.serialNumber) {
+        if (!confirm('当前设备看起来已下载 Loader， 重复下载 Loader 可能会卡死，是否继续？'))
+          return;
+        appendLine('强制重新下载 Loader 中...，如果卡死请刷新页面');
+      }
       try {
         await wrapper.runCommand(['db', selectedLoader], {requestDevice: !usbConnected});
         appendLine('loader 下载完成，可能要点击“选择 Rockchip 设备”按钮重新连接');
@@ -126,6 +171,7 @@
           dlFileBtn.disabled = true;
           return;
         }
+        appendLine(`已选择固件: ${selectedFile.name} (${selectedFile.size} bytes)`);
         dlFileBtn.disabled = false;
       } catch (error) {
         appendLine(String(error.message || error));
@@ -136,9 +182,7 @@
       let result;
       try {
         if (!usbConnected) {
-          window.rkdev = await wrapper.requestDevice([{ vendorId: 0x2207 }]);
-          appendLine(`设备已授权: ${window.rkdev.productName} (${window.rkdev.productId.toString(16)})`);
-          usbConnected = true;
+          await requestDevice();
         }
 
         if (!window.rkdev.serialNumber) {
@@ -159,14 +203,17 @@
         }
         
         appendLine('下载固件中...');
+        const startTime = new Date().getTime();
         result = await wrapper.runCommand(['wl', '0', '$FILE'], {
           requestDevice: !usbConnected,
           fileSource: selectedFile,
           fileName: selectedFile.name,
           replaceToken: '$FILE',
         });
+        const endTime = new Date().getTime();
+        const duration = (endTime - startTime) / 1000;
         if (result.exitCode === 0) {
-          appendLine('固件下载成功');
+          appendLine(`固件下载成功，耗时 ${duration.toFixed(2)} 秒`);
         } else {
           appendLine('固件下载失败');
           return;
@@ -179,9 +226,7 @@
     pickDeviceBtn.addEventListener('click', async () => {
       let device;
       try {
-        window.rkdev = device = await wrapper.requestDevice([{ vendorId: 0x2207 }]);
-        appendLine(`设备已授权: ${device.productName} (${device.productId.toString(16)})`);
-        usbConnected = true;
+        await requestDevice();
       } catch (error) {
         appendLine(String(error.message || error));
       }

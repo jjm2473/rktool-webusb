@@ -182,21 +182,24 @@ export async function createRKDevelopToolWrapper(options = {}) {
   const platform = createPlatformAdapter(options);
   const factory = await resolveModuleFactory(options.moduleFactory, options.moduleUrl);
   const wasmSpecifier = normalizeSpecifier(options.wasmUrl, DEFAULT_WASM_URL);
-
+  const dedupedLog = (callback) => {
+    if (typeof callback !== 'function') {
+      return () => {};
+    }
+    let lastText = '';
+    return (text) => {
+      if (!text.includes('Write LBA from file'))
+          callback(text);
+      else if (text !== lastText) {
+        lastText = text;
+        callback(text);
+      }
+    };
+  }
   const moduleInstance = await factory({
     noInitialRun: true,
-    print: (line) => {
-      const text = String(line);
-      if (typeof options.onStdout === 'function') {
-        options.onStdout(text);
-      }
-    },
-    printErr: (line) => {
-      const text = String(line);
-      if (typeof options.onStderr === 'function') {
-        options.onStderr(text);
-      }
-    },
+    print: dedupedLog(options.onStdout),
+    printErr: typeof options.onStderr === 'function' ? options.onStderr : ()=>{},
     locateFile: (fileName) => {
       if (fileName.endsWith('.wasm')) {
         return wasmSpecifier;
