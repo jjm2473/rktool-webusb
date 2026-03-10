@@ -71,7 +71,10 @@
     <button id="run">执行命令</button>
   </div>
   <div>
-    <button id="clear-output">清空输出</button>
+    <button id="clear-output">清空日志</button>
+    <button id="copy-output">复制日志</button>
+    <button id="download-output">下载日志</button>
+    <span id="output-action-tip" aria-live="polite"></span>
   </div>
 
   <pre id="output" style="background:#111;color:#0f0;padding:12px;min-height:220px;max-height:400px;overflow:auto;"></pre>
@@ -95,10 +98,25 @@
     const runBtn = document.getElementById('run');
     const commandInput = document.getElementById('command');
     const clearOutputBtn = document.getElementById('clear-output');
+    const copyOutputBtn = document.getElementById('copy-output');
+    const downloadOutputBtn = document.getElementById('download-output');
+    const outputActionTip = document.getElementById('output-action-tip');
 
     let selectedLoader = null;
     let selectedFile = null;
     let usbConnected = false;
+    let outputActionTipTimer = null;
+
+    function showOutputActionTip(text) {
+      outputActionTip.textContent = text;
+      if (outputActionTipTimer) {
+        clearTimeout(outputActionTipTimer);
+      }
+      outputActionTipTimer = setTimeout(() => {
+        outputActionTip.textContent = '';
+        outputActionTipTimer = null;
+      }, 3000);
+    }
 
     function appendLine(text) {
       output.textContent += `${text}\n`;
@@ -107,8 +125,77 @@
 
     function clearOutput() {
       output.textContent = '';
+      showOutputActionTip('日志已清空');
     }
     clearOutputBtn.addEventListener('click', clearOutput);
+
+    function getOutputText() {
+      return output.textContent || '';
+    }
+
+    function createLogFileName() {
+      const now = new Date();
+      const pad = (value) => String(value).padStart(2, '0');
+      return `rktool-web-log-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.txt`;
+    }
+
+    async function copyOutput() {
+      const text = getOutputText();
+      if (!text.trim()) {
+        showOutputActionTip('日志为空，无需复制');
+        return;
+      }
+
+      try {
+        if (window.isSecureContext && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const selection = window.getSelection();
+          if (!selection) {
+            throw new Error('当前环境不支持 Selection API');
+          }
+
+          const range = document.createRange();
+          range.selectNodeContents(output);
+          selection.removeAllRanges();
+          selection.addRange(range);
+
+          const copied = document.execCommand('copy');
+          selection.removeAllRanges();
+          if (!copied) {
+            throw new Error('浏览器拒绝复制');
+          }
+        }
+        showOutputActionTip('日志已复制');
+      } catch (error) {
+        showOutputActionTip(`复制日志失败: ${String(error.message || error)}`);
+      }
+    }
+
+    function downloadOutput() {
+      const text = getOutputText();
+      if (!text.trim()) {
+        showOutputActionTip('日志为空，无需下载');
+        return;
+      }
+
+      const fileName = createLogFileName();
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showOutputActionTip(`日志下载已开始: ${fileName}`);
+    }
+
+    copyOutputBtn.addEventListener('click', () => {
+      void copyOutput();
+    });
+    downloadOutputBtn.addEventListener('click', downloadOutput);
 
     async function onUsbConnect(device) {
       appendLine(`设备已连接: ${device.productName} (0x${device.productId.toString(16)})`);
