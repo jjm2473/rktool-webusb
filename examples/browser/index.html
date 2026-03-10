@@ -3,15 +3,29 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>rkdeveloptool WebUSB 示例</title>
+  <title>rkdeveloptool Web 版</title>
+  <style>
+    body {
+      padding-bottom: 40px;
+    }
+
+    footer {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 8px 12px;
+      background: #fff;
+    }
+  </style>
 </head>
 <body>
-  <h1>rkdeveloptool WebUSB 示例</h1>
+  <h1>rkdeveloptool Web 版</h1>
   <details>
     <summary>说明</summary>
     <h3>仅支持 Chrome/Edge 等基于 Chromium 的浏览器</h3>
-    <h4>不建议在 Windows 下使用，因为 Windows 下有 Rockchip 官方的图形刷机工具。且可能需要安装 WinUSB 驱动，驱动又可能跟 Rockchip 驱动冲突。自行评估风险</h4>
-    <h5>一般刷机步骤：</h4>
+    <h5>不建议在 Windows 下使用，因为 Windows 下有 Rockchip 官方的图形刷机工具。且可能需要安装 WinUSB 驱动，驱动又可能跟 Rockchip 驱动冲突。自行评估风险</h5>
+    <h4>一般刷机步骤：</h4>
     <ol>
       <li>设备进入 MASKROM 或 Loader 模式（通常是开机时按住某个按键，具体请搜索设备型号+MASKROM/Loader）</li>
       <li>设备通过 USB 连接到电脑（通常是设备的 Type-C 接口，也可能是 A 口）</li>
@@ -61,6 +75,10 @@
   </div>
 
   <pre id="output" style="background:#111;color:#0f0;padding:12px;min-height:220px;max-height:400px;overflow:auto;"></pre>
+
+  <footer>
+    <a href="https://github.com/jjm2473/rktool-webusb" target="_blank" rel="noopener noreferrer">GitHub: jjm2473/rktool-webusb</a>
+  </footer>
 
   <script type="module">
     import { createRKToolWorker } from './src/worker-proxy.js';
@@ -143,6 +161,7 @@
     }
 
     const wrapper = await createRKToolWorker({
+      workerPath: './src/rktool-worker.js',
       requestDevice,
       onStdout: appendLine,
       onStderr: appendLine,

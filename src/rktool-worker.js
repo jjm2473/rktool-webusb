@@ -1,7 +1,6 @@
-import { createRKDevelopToolWrapper } from '../../../src/rkdeveloptool-wrapper.js';
+import { createRKDevelopToolWrapper } from './rkdeveloptool-wrapper.js';
 
 let wrapper = null;
-let messageIdCounter = 0;
 
 // 发送消息回主线程
 function postResponse(id, type, data) {

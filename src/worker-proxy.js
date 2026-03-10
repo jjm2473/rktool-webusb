@@ -2,7 +2,7 @@
  * 主线程代理类，与 Worker 通信来执行 rkdeveloptool 操作
  */
 export class RKToolWorkerProxy {
-  constructor(workerPath = './src/rktool-worker.js') {
+  constructor(workerPath) {
     this.worker = new Worker(workerPath, { type: 'module' });
     this.messageId = 0;
     this.pendingRequests = new Map();
@@ -142,7 +142,7 @@ export class RKToolWorkerProxy {
  * 创建 Worker 代理实例
  */
 export async function createRKToolWorker(options = {}) {
-  const workerPath = options.workerPath || './src/rktool-worker.js';
+  const workerPath = options.workerPath || './rktool-worker.js';
   const proxy = new RKToolWorkerProxy(workerPath);
   
   await proxy.init(options);
