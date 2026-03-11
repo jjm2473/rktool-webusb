@@ -1,9 +1,28 @@
 export type RuntimeType = 'browser' | 'node' | 'unknown';
 
+export interface BlobLikeSource {
+  name?: string;
+  size?: number;
+  lastModifiedDate?: Date;
+  slice(start?: number, end?: number, contentType?: string): unknown;
+}
+
+export interface NodeBlobLike extends BlobLikeSource {
+  lastModified?: number;
+  type?: string;
+  arrayBuffer?(): Promise<ArrayBuffer>;
+  text?(): Promise<string>;
+  bytes?(): Promise<Uint8Array>;
+  stream?(): unknown;
+}
+
+export type FileSource = BlobLikeSource | NodeBlobLike;
+
 export interface RunCommandOptions {
   requestDevice?: boolean;
   usbFilters?: Array<{ vendorId?: number; productId?: number }>;
-  fileSource?: unknown;
+  fileSource?: FileSource | string;
+  gunzip?: boolean;
   fileName?: string;
   replaceToken?: string;
 }
@@ -19,7 +38,7 @@ export interface RkdeveloptoolWrapper {
   fs: unknown;
   requestDevice(filters?: Array<{ vendorId?: number; productId?: number }>): Promise<unknown>;
   getDevices(): Promise<unknown[]>;
-  mountFile(name: string, source: unknown): Promise<string>;
+  mountFile(name: string, source: FileSource | string): Promise<string>;
   runCommand(args: string[], options?: RunCommandOptions): Promise<RunCommandResult>;
 }
 

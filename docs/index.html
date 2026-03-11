@@ -44,7 +44,7 @@
   </div>
   <div>
     <label for="pick-file">选择固件</label>
-    <input id="pick-file" type="file" accept=".bin,.img" />
+    <input id="pick-file" type="file" accept=".bin,.img,.gz" />
   </div>
 
   <div>
@@ -265,7 +265,7 @@
           dlLoaderBtn.disabled = true;
           return;
         }
-        selectedLoader = await wrapper.mountFile('MiniLoaderAll.bin', loader);
+        selectedLoader = await wrapper.mountFile('loader', loader);
         appendLine(`已选择Loader: ${loader.name} (${loader.size} bytes)`);
         dlLoaderBtn.disabled = false;
       } catch (error) {
@@ -333,7 +333,8 @@
         const startTime = new Date().getTime();
         result = await wrapper.runCommand(['wl', '0', '$FILE'], {
           fileSource: selectedFile,
-          fileName: selectedFile.name,
+          gunzip: selectedFile.name.endsWith('.img.gz'),
+          fileName: "fw",
           replaceToken: '$FILE',
         });
         const endTime = new Date().getTime();

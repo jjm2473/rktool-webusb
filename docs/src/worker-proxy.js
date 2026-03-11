@@ -144,8 +144,14 @@ export class RKToolWorkerProxy {
 export async function createRKToolWorker(options = {}) {
   const workerPath = options.workerPath || './rktool-worker.js';
   const proxy = new RKToolWorkerProxy(workerPath);
-  
-  await proxy.init(options);
+
+  try {
+    await proxy.init(options);
+  } catch (error) {
+    proxy.terminate();
+    options.onStderr?.(`Failed to initialize RKToolWorkerProxy: ${error.message}`);
+    throw error;
+  }
 
   return {
     getDevices: () => proxy.getDevices(),

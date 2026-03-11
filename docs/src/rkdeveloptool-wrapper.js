@@ -219,7 +219,7 @@ export async function createRKDevelopToolWrapper(options = {}) {
     : () => {};
   setupLogForwarding(FS, onLogWrite);
 
-  const fs = platform.createFileSystem(moduleInstance, options.fsOptions);
+  const fs = await platform.createFileSystem(moduleInstance, options.fsOptions);
 
   const runCommand = async function (args, runOptions = {}) {
     const argv = normalizeArgv(args);
@@ -230,7 +230,7 @@ export async function createRKDevelopToolWrapper(options = {}) {
 
     if (runOptions.fileSource) {
       const fileName = runOptions.fileName || 'input.bin';
-      const virtualPath = await fs.mountFile(fileName, runOptions.fileSource);
+      const virtualPath = await fs.mountFile(fileName, runOptions.fileSource, runOptions.gunzip);
       if (runOptions.replaceToken) {
         for (let index = 0; index < argv.length; index++) {
           if (argv[index] === runOptions.replaceToken) {
@@ -267,7 +267,7 @@ export async function createRKDevelopToolWrapper(options = {}) {
     fs,
     requestDevice: (filters) => platform.requestDevice(filters),
     getDevices: () => platform.getDevices(),
-    mountFile: (name, source) => fs.mountFile(name, source),
+    mountFile: (name, source, gunzip) => fs.mountFile(name, source, gunzip),
     runCommand,
   };
 }

@@ -22,8 +22,8 @@ export async function createPlatformAdapter(options = {}) {
     webUsb: options.webUsb,
   });
 
-  function createFileSystem(moduleInstance, fsOptions = {}) {
-    return createFsWrapper(moduleInstance, {
+  async function createFileSystem(moduleInstance, fsOptions = {}) {
+    return await createFsWrapper(moduleInstance, {
       runtime,
       ...fsOptions,
     });

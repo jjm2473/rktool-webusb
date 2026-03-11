@@ -1,6 +1,53 @@
 import { createRKDevelopToolWrapper } from './rkdeveloptool-wrapper.js';
 
 let wrapper = null;
+let pakoInflateReadyPromise = null;
+
+async function ensurePakoInflate() {
+  if (typeof globalThis.pako?.Inflate === 'function') {
+    return;
+  }
+
+  if (!pakoInflateReadyPromise) {
+    pakoInflateReadyPromise = (async () => {
+      const moduleSpecifiers = [
+        'https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.esm.mjs',
+        'https://esm.sh/pako@2.1.0',
+      ];
+      let pakoModule = null;
+      let lastError = null;
+
+      for (const moduleSpecifier of moduleSpecifiers) {
+        try {
+          pakoModule = await import(moduleSpecifier);
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      if (!pakoModule) {
+        throw new Error(`Failed to load pako module: ${String(lastError && lastError.message ? lastError.message : lastError)}`);
+      }
+
+      const inflateCtor = pakoModule.Inflate || pakoModule.default?.Inflate;
+      if (typeof inflateCtor !== 'function') {
+        throw new Error('Loaded pako module does not export Inflate constructor');
+      }
+
+      const previousPako = globalThis.pako && typeof globalThis.pako === 'object'
+        ? globalThis.pako
+        : {};
+
+      globalThis.pako = {
+        ...previousPako,
+        Inflate: inflateCtor,
+      };
+    })();
+  }
+
+  await pakoInflateReadyPromise;
+}
 
 // 发送消息回主线程
 function postResponse(id, type, data) {
@@ -35,6 +82,7 @@ self.addEventListener('message', async (event) => {
     switch (method) {
       case 'init': {
         const { runtime, moduleUrl, wasmUrl } = params || {};
+        await ensurePakoInflate();
         wrapper = await createRKDevelopToolWrapper({
           runtime: runtime || 'browser',
           moduleUrl,
