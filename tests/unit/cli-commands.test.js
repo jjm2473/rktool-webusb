@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRKDevelopToolWrapper } from '../../src/rkdeveloptool-wrapper.js';
+import { NodeBlob } from '../../src/node-blob.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -469,6 +470,10 @@ test('runCommand waits for async callMain completion', async () => {
 
 test('runCommand replaces token with mounted path', async () => {
   let capturedArgv = [];
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rktool-file-source-'));
+  const loaderPath = path.join(tempDir, 'loader.bin');
+  fs.writeFileSync(loaderPath, Buffer.from([1, 2, 3, 4]));
+  const loaderBlob = new NodeBlob(loaderPath);
 
   const wrapper = await createRKDevelopToolWrapper(createUnitTestWrapperOptions({
     moduleFactory: async () => {
@@ -480,14 +485,19 @@ test('runCommand replaces token with mounted path', async () => {
     },
   }));
 
-  await wrapper.runCommand(['db', '$FILE'], {
-    fileSource: '/tmp/loader.bin',
-    replaceToken: '$FILE',
-    fileName: 'loader.bin',
-  });
+  try {
+    await wrapper.runCommand(['db', '$FILE'], {
+      fileSource: loaderBlob,
+      replaceToken: '$FILE',
+      fileName: 'loader.bin',
+    });
 
-  assert.equal(capturedArgv[0], 'db');
-  assert.match(capturedArgv[1], /^\/tmp\/mounts\/.+\/loader\.bin$/);
+    assert.equal(capturedArgv[0], 'db');
+    assert.match(capturedArgv[1], /^\/tmp\/mounts\/.+\/loader\.bin$/);
+  } finally {
+    loaderBlob.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('simulate command: rkdeveloptool ld', async () => {
@@ -735,25 +745,30 @@ test('real flow: db loader fixture mounts into VFS before command', {
       });
       console.debug('mount MiniLoaderAll.bin\n');
 
-      const mountedPath = await wrapper.mountFile('MiniLoaderAll.bin', loaderPath);
-      console.debug('mount MiniLoaderAll.bin done\n');
+      const loaderBlob = new NodeBlob(loaderPath);
+      try {
+        const mountedPath = await wrapper.mountFile('MiniLoaderAll.bin', loaderBlob);
+        console.debug('mount MiniLoaderAll.bin done\n');
 
-      assert.match(mountedPath, /^\/tmp\/mounts\/.+\/MiniLoaderAll\.bin$/);
+        assert.match(mountedPath, /^\/tmp\/mounts\/.+\/MiniLoaderAll\.bin$/);
 
-      const result = await wrapper.runCommand(['db', mountedPath], {
-        requestDevice: true,
-        usbFilters: [{ vendorId: 0x2207 }],
-      });
+        const result = await wrapper.runCommand(['db', mountedPath], {
+          requestDevice: true,
+          usbFilters: [{ vendorId: 0x2207 }],
+        });
 
-      console.debug('db command completed with', result.exitCode);
-      console.debug('transport statistic: open=', transportState.openCallCount, 'cout=', transportState.controlTransferOutCalls.length, 'cin=', transportState.controlTransferInCalls.length);
+        console.debug('db command completed with', result.exitCode);
+        console.debug('transport statistic: open=', transportState.openCallCount, 'cout=', transportState.controlTransferOutCalls.length, 'cin=', transportState.controlTransferInCalls.length);
 
-      assert.equal(typeof result.exitCode, 'number');
-      assert.equal(state.requestDeviceCallCount, 1);
-      assert.equal(state.getDevicesCallCount, 1);
-      assert.equal(transportState.openCallCount, 2);
-      assert.equal(transportState.controlTransferOutCalls.length > 0, true);
-      assert.equal(transportState.controlTransferInCalls.length > 0, true);
+        assert.equal(typeof result.exitCode, 'number');
+        assert.equal(state.requestDeviceCallCount, 1);
+        assert.equal(state.getDevicesCallCount, 1);
+        assert.equal(transportState.openCallCount, 2);
+        assert.equal(transportState.controlTransferOutCalls.length > 0, true);
+        assert.equal(transportState.controlTransferInCalls.length > 0, true);
+      } finally {
+        loaderBlob.close();
+      }
     });
   });
 });
@@ -790,6 +805,8 @@ test('real flow: wl fw fixture mounts into VFS before command', {
           console.debug(`Log: ${text}`);
         },
       });
+      const loaderBlob = new NodeBlob(loaderPath);
+      try {
       // console.debug('mount radxa-e54c-spi-flash-image.img\n');
 
       // const mountedPath = await wrapper.mountFile('radxa-e54c-spi-flash-image.img', loaderPath);
@@ -801,7 +818,7 @@ test('real flow: wl fw fixture mounts into VFS before command', {
         requestDevice: true,
         usbFilters: [{ vendorId: 0x2207 }],
         fileName: 'radxa-e54c-spi-flash-image.img',
-        fileSource: loaderPath,
+        fileSource: loaderBlob,
         replaceToken: '$FILE',
       });
 
@@ -815,6 +832,9 @@ test('real flow: wl fw fixture mounts into VFS before command', {
       assert.equal(transportState.controlTransferInCalls.length > 0, true);
       assert.equal(transportState.transferOutCalls.length > 0, true);
       assert.equal(transportState.transferInCalls.length > 0, true);
+      } finally {
+        loaderBlob.close();
+      }
     });
   });
 });

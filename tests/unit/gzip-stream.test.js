@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { GzipStream } from '../../src/gzip-stream.js';
+import { NodeBlob } from '../../src/node-blob.js';
 
 function createPayload(size) {
   const payload = new Uint8Array(size);
@@ -46,7 +47,12 @@ async function withTempGzip(payload, callback) {
 
   try {
     await fs.writeFile(gzipPath, gzipSync(payload));
-    return await callback(gzipPath);
+    const sourceBlob = new NodeBlob(gzipPath);
+    try {
+      return await callback(sourceBlob, gzipPath);
+    } finally {
+      sourceBlob.close();
+    }
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -58,7 +64,12 @@ async function withTempGzipBytes(gzipBytes, callback) {
 
   try {
     await fs.writeFile(gzipPath, gzipBytes);
-    return await callback(gzipPath);
+    const sourceBlob = new NodeBlob(gzipPath);
+    try {
+      return await callback(sourceBlob, gzipPath);
+    } finally {
+      sourceBlob.close();
+    }
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -67,9 +78,17 @@ async function withTempGzipBytes(gzipBytes, callback) {
 test('constructor resolves uncompressed size hint from gzip trailer', async () => {
   const payload = createPayload(12345);
 
-  await withTempGzip(payload, async (gzipPath) => {
-    const stream = new GzipStream(gzipPath);
+  await withTempGzip(payload, async (gzipBlob) => {
+    const stream = new GzipStream(gzipBlob);
     assert.equal(stream.uncompressedSize, payload.byteLength);
+  });
+});
+
+test('constructor rejects path-string source in node runtime', async () => {
+  const payload = createPayload(256);
+
+  await withTempGzip(payload, async (_gzipBlob, gzipPath) => {
+    assert.throws(() => new GzipStream(gzipPath), /Blob-like/);
   });
 });
 
@@ -80,8 +99,8 @@ test('constructor ignores OpenWrt metadata footer chain and corrects sizes', asy
   const metadataSize = metadataBlocks.reduce((sum, size) => sum + size, 0);
   const withMetadata = appendOpenWrtMetadata(rawGzip, metadataBlocks);
 
-  await withTempGzipBytes(withMetadata, async (gzipPath) => {
-    const stream = new GzipStream(gzipPath);
+  await withTempGzipBytes(withMetadata, async (gzipBlob) => {
+    const stream = new GzipStream(gzipBlob);
 
     assert.equal(stream.metadataSize, metadataSize);
     assert.equal(stream.compressedSize, rawGzip.byteLength);
@@ -110,8 +129,8 @@ test('constructor ignores OpenWrt metadata footer chain and corrects sizes', asy
 test('open prefetches 4KB and read supports cache + sequential mode', async () => {
   const payload = createPayload(8192);
 
-  await withTempGzip(payload, async (gzipPath) => {
-    const stream = new GzipStream(gzipPath);
+  await withTempGzip(payload, async (gzipBlob) => {
+    const stream = new GzipStream(gzipBlob);
     const openResult = stream.open();
     assert.equal(openResult, undefined);
 
@@ -154,8 +173,8 @@ test('open prefetches 4KB and read supports cache + sequential mode', async () =
 test('read rejects non-sequential access beyond cached prefix', async () => {
   const payload = createPayload(7000);
 
-  await withTempGzip(payload, async (gzipPath) => {
-    const stream = new GzipStream(gzipPath);
+  await withTempGzip(payload, async (gzipBlob) => {
+    const stream = new GzipStream(gzipBlob);
     stream.open();
 
     try {
@@ -177,8 +196,8 @@ test('read rejects non-sequential access beyond cached prefix', async () => {
 test('short payload reads from cache and returns 0 at EOF', async () => {
   const payload = createPayload(1024);
 
-  await withTempGzip(payload, async (gzipPath) => {
-    const stream = new GzipStream(gzipPath);
+  await withTempGzip(payload, async (gzipBlob) => {
+    const stream = new GzipStream(gzipBlob);
     stream.open();
 
     try {

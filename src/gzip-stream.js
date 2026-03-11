@@ -1,3 +1,8 @@
+/**
+ * 仅支持在Nodejs或者浏览器Worker环境中使用，主线程浏览器环境不支持同步读取Blob，无法使用GzipStream
+ */
+import { NodeBlobReaderSync } from './node-blob.js';
+
 const DEFAULT_PREFIX_CACHE_SIZE = 4 * 1024;
 const DEFAULT_COMPRESSED_CHUNK_SIZE = 64 * 1024;
 const OPENWRT_METADATA_MAGIC = [0x46, 0x57, 0x78, 0x30]; // "FWx0"
@@ -150,64 +155,6 @@ function createUnknownSourceInfo() {
 	};
 }
 
-function probeNodeSourceInfo(pathname) {
-	if (!nodeRequire || !pathname) {
-		return createUnknownSourceInfo();
-	}
-
-	const fs = nodeRequire('node:fs');
-	let fd = null;
-
-	try {
-		const stat = fs.statSync(pathname);
-		const sourceSize = normalizeSize(stat?.size, 0);
-		if (sourceSize <= 0) {
-			return {
-				sourceSize,
-				metadataSize: 0,
-				compressedSize: 0,
-				uncompressedSize: null,
-			};
-		}
-
-		fd = fs.openSync(pathname, 'r');
-		const readRange = (offset, length) => {
-			if (offset < 0 || length <= 0 || offset + length > sourceSize) {
-				return null;
-			}
-			const scratch = Buffer.allocUnsafe(length);
-			const bytesRead = fs.readSync(fd, scratch, 0, length, offset);
-			if (bytesRead !== length) {
-				return null;
-			}
-			return new Uint8Array(scratch.buffer, scratch.byteOffset, length);
-		};
-
-		const metadataSize = detectOpenWrtMetadataSize(sourceSize, readRange);
-		const compressedSize = Math.max(0, sourceSize - metadataSize);
-		const trailer = compressedSize >= 4
-			? readRange(compressedSize - 4, 4)
-			: null;
-		const uncompressedSize = readUint32LE(trailer, 0);
-
-		return {
-			sourceSize,
-			metadataSize,
-			compressedSize,
-			uncompressedSize,
-		};
-	} catch (_error) {
-		return createUnknownSourceInfo();
-	} finally {
-		if (fd !== null) {
-			try {
-				fs.closeSync(fd);
-			} catch (_closeError) {
-			}
-		}
-	}
-}
-
 function probeBlobSourceInfo(blob) {
 	const sourceSize = normalizeSize(blob?.size, 0);
 	if (
@@ -215,7 +162,6 @@ function probeBlobSourceInfo(blob) {
 		|| typeof blob !== 'object'
 		|| typeof blob.slice !== 'function'
 		|| sourceSize <= 0
-		|| typeof FileReaderSync !== 'function'
 	) {
 		return {
 			sourceSize,
@@ -226,17 +172,46 @@ function probeBlobSourceInfo(blob) {
 	}
 
 	try {
-		const reader = new FileReaderSync();
-		const readRange = (offset, length) => {
-			if (offset < 0 || length <= 0 || offset + length > sourceSize) {
-				return null;
+		let readRange;
+
+		if (isNodeRuntime()) {
+			const reader = new NodeBlobReaderSync();
+			readRange = (offset, length) => {
+				if (offset < 0 || length <= 0 || offset + length > sourceSize) {
+					return null;
+				}
+
+				const arrayBuffer = reader.readAsArrayBuffer(blob.slice(offset, offset + length));
+				if (!arrayBuffer || arrayBuffer.byteLength !== length) {
+					return null;
+				}
+
+				return new Uint8Array(arrayBuffer);
+			};
+		} else {
+			if (typeof FileReaderSync !== 'function') {
+				return {
+					sourceSize,
+					metadataSize: 0,
+					compressedSize: sourceSize,
+					uncompressedSize: null,
+				};
 			}
-			const arrayBuffer = reader.readAsArrayBuffer(blob.slice(offset, offset + length));
-			if (!arrayBuffer || arrayBuffer.byteLength !== length) {
-				return null;
-			}
-			return new Uint8Array(arrayBuffer);
-		};
+
+			const reader = new FileReaderSync();
+			readRange = (offset, length) => {
+				if (offset < 0 || length <= 0 || offset + length > sourceSize) {
+					return null;
+				}
+
+				const arrayBuffer = reader.readAsArrayBuffer(blob.slice(offset, offset + length));
+				if (!arrayBuffer || arrayBuffer.byteLength !== length) {
+					return null;
+				}
+
+				return new Uint8Array(arrayBuffer);
+			};
+		}
 
 		const metadataSize = detectOpenWrtMetadataSize(sourceSize, readRange);
 		const compressedSize = Math.max(0, sourceSize - metadataSize);
@@ -261,74 +236,29 @@ function probeBlobSourceInfo(blob) {
 	}
 }
 
-export function readGzipISizeFromPath(pathname) {
-	return probeNodeSourceInfo(pathname).uncompressedSize;
-}
-
 export function readGzipISizeFromBlob(blob) {
 	return probeBlobSourceInfo(blob).uncompressedSize;
 }
 
-class NodeChunkReader {
-	constructor(filePath, chunkSize, effectiveSize = null) {
-		if (!nodeRequire) {
-			throw new Error('Node.js require is unavailable for sync source reading');
-		}
-		const fs = nodeRequire('node:fs');
-		this.fs = fs;
-		this.fd = fs.openSync(filePath, 'r');
-		const stat = fs.fstatSync(this.fd);
-		const sourceSize = normalizeSize(stat.size, 0);
-		const safeEffectiveSize = normalizeSize(effectiveSize, sourceSize);
-		this.size = Math.max(0, Math.min(sourceSize, safeEffectiveSize));
-		this.offset = 0;
-		this.eof = this.size === 0;
-		this._scratch = Buffer.allocUnsafe(chunkSize);
-	}
-
-	readChunk() {
-		if (this.offset >= this.size) {
-			this.eof = true;
-			return null;
-		}
-
-		const maxRead = Math.min(this._scratch.byteLength, this.size - this.offset);
-		const bytesRead = this.fs.readSync(this.fd, this._scratch, 0, maxRead, this.offset);
-		if (bytesRead <= 0) {
-			this.offset = this.size;
-			this.eof = true;
-			return null;
-		}
-
-		this.offset += bytesRead;
-		this.eof = this.offset >= this.size;
-		const view = new Uint8Array(this._scratch.buffer, this._scratch.byteOffset, bytesRead);
-		return Uint8Array.from(view);
-	}
-
-	close() {
-		if (this.fd == null) {
-			return;
-		}
-		this.fs.closeSync(this.fd);
-		this.fd = null;
-	}
-}
-
-class BlobChunkReader {
-	constructor(source, chunkSize, effectiveSize = null) {
+class SyncBlobChunkReader {
+	constructor(source, chunkSize, effectiveSize = null, runtime = 'browser') {
 		if (!source || typeof source !== 'object') {
-			throw new Error('Browser source must be a File/Blob-like object');
+			throw new Error('gzip source must be a File/Blob-like object');
 		}
 		if (typeof source.slice !== 'function') {
-			throw new Error('Browser source must provide Blob.slice() for sync reading');
-		}
-		if (typeof FileReaderSync !== 'function') {
-			throw new Error('FileReaderSync is required for sync browser gzip reading (Worker runtime only)');
+			throw new Error('gzip source must provide Blob.slice() for sync reading');
 		}
 
 		this.source = source;
-		this.reader = new FileReaderSync();
+		if (runtime === 'node') {
+			this.reader = new NodeBlobReaderSync();
+		} else {
+			if (typeof FileReaderSync !== 'function') {
+				throw new Error('FileReaderSync is required for sync browser gzip reading (Worker runtime only)');
+			}
+			this.reader = new FileReaderSync();
+		}
+
 		const sourceSize = normalizeSize(source.size, 0);
 		const safeEffectiveSize = normalizeSize(effectiveSize, sourceSize);
 		this.size = Math.max(0, Math.min(sourceSize, safeEffectiveSize));
@@ -346,9 +276,16 @@ class BlobChunkReader {
 		const end = Math.min(this.offset + this.chunkSize, this.size);
 		const blob = this.source.slice(this.offset, end);
 		const arrayBuffer = this.reader.readAsArrayBuffer(blob);
+		const chunk = new Uint8Array(arrayBuffer);
+
 		this.offset = end;
 		this.eof = this.offset >= this.size;
-		return new Uint8Array(arrayBuffer);
+
+		if (chunk.byteLength <= 0) {
+			return null;
+		}
+
+		return chunk;
 	}
 
 	close() {
@@ -398,10 +335,12 @@ function createPakoInflater(runtime, onData) {
 
 export class GzipStream {
 	constructor(source, options = {}) {
+		if (!source || typeof source !== 'object' || typeof source.slice !== 'function') {
+			throw new Error('GzipStream source must be a Blob-like object with slice()');
+		}
+
 		this.source = source;
-		this._sourceInfo = typeof source === 'string'
-			? probeNodeSourceInfo(source)
-			: probeBlobSourceInfo(source);
+		this._sourceInfo = probeBlobSourceInfo(source);
 		this.sourceSize = this._sourceInfo.sourceSize;
 		this.metadataSize = this._sourceInfo.metadataSize;
 		this.compressedSize = this._sourceInfo.compressedSize;
@@ -436,18 +375,15 @@ export class GzipStream {
 		this._resetReadState();
 
 		try {
-			if (typeof this.source === 'string') {
-				if (!isNodeRuntime()) {
-					throw new Error('Node.js file path source is only supported in Node.js runtime');
-				}
+			if (isNodeRuntime()) {
 				this._runtime = 'node';
-				this._sourceReader = new NodeChunkReader(this.source, this.compressedChunkSize, this.compressedSize);
+				this._sourceReader = new SyncBlobChunkReader(this.source, this.compressedChunkSize, this.compressedSize, 'node');
 			} else {
 				if (!isWorkerLikeRuntime()) {
 					throw new Error('Sync browser gzip reading is only supported in Worker runtime');
 				}
 				this._runtime = 'browser';
-				this._sourceReader = new BlobChunkReader(this.source, this.compressedChunkSize, this.compressedSize);
+				this._sourceReader = new SyncBlobChunkReader(this.source, this.compressedChunkSize, this.compressedSize, 'browser');
 			}
 
 			this._inflater = this._createInflater((chunk) => this._enqueue(chunk));

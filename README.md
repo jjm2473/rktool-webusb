@@ -56,6 +56,8 @@ npm install
 node examples/nodejs/cli.js ld
 ```
 
+如需在 Node.js 中通过 wrapper 传文件参数，推荐先用本地路径构造 `NodeBlob`（`import { NodeBlob } from './src/node-blob.js'`），再传给 `mountFile()` 或 `runCommand(..., { fileSource })`。
+
 ## 浏览器使用
 
 浏览器环境需要 HTTPS 或 localhost。可在仓库根目录启动一个静态服务：

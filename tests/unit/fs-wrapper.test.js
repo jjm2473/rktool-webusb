@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { createFsWrapper, ensureRuntimeDirs } from '../../src/fs-wrapper.js';
+import { NodeBlob } from '../../src/node-blob.js';
 
 function createMockFs() {
   const dirs = new Set(['/']);
@@ -30,6 +34,20 @@ function createMockFs() {
       files.set(pathname, content);
     },
   };
+}
+
+async function withTempNodeBlob(fileName, callback) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'rktool-fs-wrapper-'));
+  const filePath = path.join(tempDir, fileName);
+  await fs.writeFile(filePath, Buffer.from([1, 2, 3, 4]));
+  const blob = new NodeBlob(filePath);
+
+  try {
+    return await callback(blob, filePath);
+  } finally {
+    blob.close();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
 }
 
 test('ensureRuntimeDirs creates tmp paths', () => {
@@ -134,15 +152,17 @@ test('mountFile uses NODEFS in node runtime', async () => {
   };
 
   const wrapper = createFsWrapper(moduleInstance, { runtime: 'node' });
-  const mountedPath = await wrapper.mountFile('image', '/tmp/test-update.img');
+  await withTempNodeBlob('test-update.img', async (blob) => {
+    const mountedPath = await wrapper.mountFile('image', blob);
 
-  assert.match(mountedPath, /^\/tmp\/mounts\/.+\/test-update\.img$/);
-  const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
-  const mountRecord = FS.mounts.get(mountPoint);
-  assert.ok(mountRecord);
-  assert.equal(mountRecord.type.kind, 'WORKERFS');
-  assert.equal(mountRecord.options.files[0].path, '/tmp/test-update.img');
-  assert.equal(mountRecord.options.files[0].name, 'test-update.img');
+    assert.match(mountedPath, /^\/tmp\/mounts\/.+\/test-update\.img$/);
+    const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
+    const mountRecord = FS.mounts.get(mountPoint);
+    assert.ok(mountRecord);
+    assert.equal(mountRecord.type.kind, 'WORKERFS');
+    assert.equal(mountRecord.options.files[0], blob);
+    assert.equal(mountRecord.options.files[0].name, 'test-update.img');
+  });
 });
 
 test('mountFile uses NODEFS from FS.filesystems fallback', async () => {
@@ -156,15 +176,17 @@ test('mountFile uses NODEFS from FS.filesystems fallback', async () => {
   };
 
   const wrapper = createFsWrapper(moduleInstance, { runtime: 'node' });
-  const mountedPath = await wrapper.mountFile('image', '/tmp/test-update.img');
+  await withTempNodeBlob('test-update.img', async (blob) => {
+    const mountedPath = await wrapper.mountFile('image', blob);
 
-  assert.match(mountedPath, /^\/tmp\/mounts\/.+\/test-update\.img$/);
-  const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
-  const mountRecord = FS.mounts.get(mountPoint);
-  assert.ok(mountRecord);
-  assert.equal(mountRecord.type.kind, 'WORKERFS');
-  assert.equal(mountRecord.options.files[0].path, '/tmp/test-update.img');
-  assert.equal(mountRecord.options.files[0].name, 'test-update.img');
+    assert.match(mountedPath, /^\/tmp\/mounts\/.+\/test-update\.img$/);
+    const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
+    const mountRecord = FS.mounts.get(mountPoint);
+    assert.ok(mountRecord);
+    assert.equal(mountRecord.type.kind, 'WORKERFS');
+    assert.equal(mountRecord.options.files[0], blob);
+    assert.equal(mountRecord.options.files[0].name, 'test-update.img');
+  });
 });
 
 test('mountFile with gunzip uses GZIPWORKERFS in node runtime', async () => {
@@ -176,16 +198,18 @@ test('mountFile with gunzip uses GZIPWORKERFS in node runtime', async () => {
   };
 
   const wrapper = createFsWrapper(moduleInstance, { runtime: 'node' });
-  const mountedPath = await wrapper.mountFile('image', '/tmp/test-update.img.gz', true);
+  await withTempNodeBlob('test-update.img.gz', async (blob) => {
+    const mountedPath = await wrapper.mountFile('image', blob, true);
 
-  assert.match(mountedPath, /^\/tmp\/mounts\/.+\/test-update\.img$/);
-  const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
-  const mountRecord = FS.mounts.get(mountPoint);
-  assert.ok(mountRecord);
-  assert.equal(mountRecord.type.kind, 'WORKERFS');
-  assert.ok(mountRecord.type.mount);
-  assert.equal(mountRecord.options.files[0].name, 'test-update.img');
-  assert.equal(mountRecord.options.files[0].path, '/tmp/test-update.img.gz');
+    assert.match(mountedPath, /^\/tmp\/mounts\/.+\/test-update\.img$/);
+    const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
+    const mountRecord = FS.mounts.get(mountPoint);
+    assert.ok(mountRecord);
+    assert.equal(mountRecord.type.kind, 'WORKERFS');
+    assert.ok(mountRecord.type.mount);
+    assert.equal(mountRecord.options.files[0].name, 'test-update.img');
+    assert.equal(mountRecord.options.files[0].data, blob);
+  });
 });
 
 test('mountFile throws when WORKERFS mount fails', async () => {
@@ -232,16 +256,14 @@ test('mountFile throws when WORKERFS is unavailable in browser runtime', async (
   );
 });
 
-test('mountFile throws when WORKERFS is unavailable in node runtime', async () => {
+test('createFsWrapper throws when WORKERFS is unavailable in node runtime', async () => {
   const FS = createMockFs();
   const moduleInstance = {
     FS,
   };
 
-  const wrapper = createFsWrapper(moduleInstance, { runtime: 'node' });
-
-  await assert.rejects(
-    () => wrapper.mountFile('image', '/tmp/test-update.img'),
+  await assert.throws(
+    () => createFsWrapper(moduleInstance, { runtime: 'node' }),
     /WORKERFS is required for file mapping/
   );
 });

@@ -27,9 +27,9 @@ const wrapper = await createRKDevelopToolWrapper({
     - 为 `true` 时先触发设备请求（浏览器）或筛选设备（Node）。
   - `usbFilters?: Array<{ vendorId?: number; productId?: number }>`
     - 默认使用 Rockchip `vendorId=0x2207`。
-  - `fileSource?: unknown`
+  - `fileSource?: File/Blob | NodeBlob`
     - 浏览器下传入 `File/Blob`，通过 `WORKERFS` 映射挂载。
-    - Node 下传入本地文件路径字符串，通过 `NODEFS` 映射挂载。
+    - Node 下统一传入 `NodeBlob`（可由本地路径构造：`new NodeBlob('/path/to/file')`）。
     - 不再回退到 `MEMFS writeFile` 内存写入。
   - `fileName?: string`
     - 虚拟挂载名称提示。
@@ -56,7 +56,7 @@ const wrapper = await createRKDevelopToolWrapper({
 
 - `mountFile(name, source)`
   - 显式挂载文件并返回虚拟路径。
-  - 浏览器必须可用 `WORKERFS`，Node.js 必须可用 `NODEFS`；不可用时会抛错。
+  - 浏览器与 Node 都通过 `WORKERFS` 文件映射；Node 侧源对象为 `NodeBlob`。
 
 ## 浏览器流程建议
 
@@ -67,5 +67,6 @@ const wrapper = await createRKDevelopToolWrapper({
 ## Node.js 流程建议
 
 1. 创建 wrapper（`runtime: 'node'`）。
-2. 通过 `runCommand(process.argv.slice(2))` 直接转发参数。
-3. 根据 `exitCode` 设置进程退出码。
+2. 需要文件参数时，先由路径构造 `NodeBlob`。
+3. 通过 `mountFile()` 或 `runCommand(..., { fileSource })` 使用该 `NodeBlob`。
+4. 根据 `exitCode` 设置进程退出码。

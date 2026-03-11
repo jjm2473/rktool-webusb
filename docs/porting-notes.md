@@ -31,7 +31,7 @@
 
 - `src/fs-wrapper.js`
   - 浏览器：`WORKERFS` 挂载 `File`。
-  - Node.js：`NODEFS` 挂载本地目录。
+  - Node.js：统一使用 `NodeBlob` 作为文件源对象（由路径构造），并通过 `WORKERFS` 映射读取。
   - 文件挂载为纯映射模式，不回退 `MEMFS.writeFile` 内存写入。
   - 统一 `mountFile(name, source)` 接口。
 
