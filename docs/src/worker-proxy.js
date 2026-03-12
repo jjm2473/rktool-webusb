@@ -104,10 +104,14 @@ export class RKToolWorkerProxy {
     return navigator.usb.getDevices();
   }
 
-  async mountFile(name, file) {
+  async mountFile(name, file, rkfw = false) {
     // 将文件传递给 Worker（File 对象可以通过 postMessage 传递）
-    const result = await this.sendRequest('mountFile', { name, file });
-    return result.virtualPath;
+    const result = await this.sendRequest('mountFile', { name, file, rkfw });
+    return result;
+  }
+
+  umount(mountPoint) {
+    return this.sendRequest('umount', mountPoint);
   }
 
   async runCommand(args, options = {}) {
@@ -155,7 +159,8 @@ export async function createRKToolWorker(options = {}) {
 
   return {
     getDevices: () => proxy.getDevices(),
-    mountFile: (name, source) => proxy.mountFile(name, source),
+    mountFile: (name, source, rkfw) => proxy.mountFile(name, source, rkfw),
+    umount: (mountPoint) => proxy.umount(mountPoint),
     runCommand: (args, options) => proxy.runCommand(args, options),
     sleep: (duration) => proxy.sleep(duration),
     terminate: () => proxy.terminate(),

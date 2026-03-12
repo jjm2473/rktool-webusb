@@ -7,7 +7,6 @@ function assert(condition, text) {
   }
 }
 
-
 const DEFAULT_MOUNT_ROOT = '/tmp/mounts';
 
 function ensureDir(FS, dirPath) {
@@ -230,9 +229,7 @@ export function ensureRuntimeDirs(FS) {
   ensureDir(FS, DEFAULT_MOUNT_ROOT);
 }
 
-async function workerFsForNode(moduleInstance) {
-
-  const NodeBlobReaderSync = (await import('./node-blob.js')).NodeBlobReaderSync;
+async function workerFsForNode(moduleInstance, NodeBlobReaderSync) {
 
   const FS = moduleInstance.FS;
   const WORKERFS = moduleInstance.WORKERFS || FS.filesystems?.WORKERFS;
@@ -398,6 +395,91 @@ function workerFsForDec(moduleInstance) {
   return DECWORKERFS;
 }
 
+function workerFsForRkfw(moduleInstance, NodeBlobReaderSync) {
+  const FS = moduleInstance.FS;
+  const WORKERFS = moduleInstance.WORKERFS || FS.filesystems?.WORKERFS;
+  if (!WORKERFS) {
+    throw new Error('WORKERFS is required for compressed file mapping');
+  }
+
+  const RKFWWORKERFS = {
+    ...WORKERFS,
+    reader: null,
+    mount(mount) {
+      RKFWWORKERFS.reader ??= (NodeBlobReaderSync?new NodeBlobReaderSync():new FileReaderSync());
+      var root = WORKERFS.createNode(null, '/', WORKERFS.DIR_MODE, 0);
+      var createdParents = {};
+      function ensureParent(path) {
+        // return the parent node, creating subdirs as necessary
+        var parts = path.split('/');
+        var parent = root;
+        for (var i = 0; i < parts.length-1; i++) {
+          var curr = parts.slice(0, i+1).join('/');
+          // Issue 4254: Using curr as a node name will prevent the node
+          // from being found in FS.nameTable when FS.open is called on
+          // a path which holds a child of this node,
+          // given that all FS functions assume node names
+          // are just their corresponding parts within their given path,
+          // rather than incremental aggregates which include their parent's
+          // directories.
+          createdParents[curr] ||= WORKERFS.createNode(parent, parts[i], WORKERFS.DIR_MODE, 0);
+          parent = createdParents[curr];
+        }
+        return parent;
+      }
+      function base(pathname) {
+        var parts = String(pathname || '').split('/').filter((part) => !!part);
+        return parts[parts.length - 1];
+      }
+
+      const blob = mount.opts['source'];
+      // RkfwInfo
+      const meta = mount.opts['meta'];
+      if (!blob || typeof blob.slice !== 'function') {
+        throw new Error('RKFW mount requires a Blob-like source object with slice()');
+      }
+      if (!meta || typeof meta !== 'object' || !meta.loader || !Array.isArray(meta.parts)) {
+        throw new Error('RKFW mount requires valid metadata with loader and parts information');
+      }
+      const mounts = [{fileName: 'MiniLoaderAll.bin', offset: meta.loader.offset, size: meta.loader.size}].concat(meta.parts);
+      for (var {fileName, offset, size} of mounts) {
+        if (fileName === null)
+          continue;
+        fileName = fileName.replaceAll('\\', '/');
+        const range = blob.slice(offset, offset + size);
+        RKFWWORKERFS.createFileNode(ensureParent(fileName), base(fileName), range);
+      }
+      return root;
+    },
+    createFileNode(parent, name, source) {
+      var node = FS.createNode(parent, name, WORKERFS.FILE_MODE);
+      node.mode = WORKERFS.FILE_MODE;
+      node.node_ops = WORKERFS.node_ops;
+      node.stream_ops = RKFWWORKERFS.stream_ops;
+      node.size = source.size;
+      node.contents = source;
+
+      if (parent) {
+        parent.contents[name] = node;
+      }
+
+      return node;
+    },
+    stream_ops: {
+      ...WORKERFS.stream_ops,
+      read(stream, buffer, offset, length, position) {
+        if (position >= stream.node.size) return 0;
+        var chunk = stream.node.contents.slice(position, position + length);
+        var ab = RKFWWORKERFS.reader.readAsArrayBuffer(chunk);
+        buffer.set(new Uint8Array(ab), offset);
+        return chunk.size;
+      },
+    },
+  };
+
+  return RKFWWORKERFS;
+}
+
 export async function createFsWrapper(moduleInstance, options = {}) {
   if (!moduleInstance || !moduleInstance.FS) {
     throw new Error('moduleInstance.FS is required');
@@ -407,28 +489,45 @@ export async function createFsWrapper(moduleInstance, options = {}) {
   const mountRoot = options.mountRoot || DEFAULT_MOUNT_ROOT;
   const FS = moduleInstance.FS;
   const WORKERFS = moduleInstance.WORKERFS || FS.filesystems?.WORKERFS;
-  const NODEFS = moduleInstance.NODEFS || FS.filesystems?.NODEFS;
-  const NODEWORKERFS = isNodeRuntime(runtime) ? await workerFsForNode(moduleInstance) : null;
+  if (!WORKERFS) {
+    throw new Error('WORKERFS is required for file mapping');
+  }
+  const NodeBlobReaderSync = isNodeRuntime(runtime) ? (await import('./node-blob.js')).NodeBlobReaderSync : null;
+  const NODEWORKERFS = isNodeRuntime(runtime) ? await workerFsForNode(moduleInstance, NodeBlobReaderSync) : null;
+  const DECWORKERFS = workerFsForDec(moduleInstance);
+  const RKFWWORKERFS = workerFsForRkfw(moduleInstance, NodeBlobReaderSync);
+
 
   ensureRuntimeDirs(FS);
   ensureDir(FS, mountRoot);
 
-  async function mountFile(name, source, gunzip = false) {
+  function createMountResult(mountPoint, virtualName) {
+    return {
+      virtualPath: `${mountPoint}/${virtualName}`,
+      mountPoint,
+    };
+  }
+
+  async function mountFile(name, source, gunzip = false, rkfw = false) {
     if (!source) {
       throw new Error('source is required');
     }
-    if (!WORKERFS) {
-      throw new Error('WORKERFS is required for file mapping');
+    if (gunzip && rkfw) {
+      throw new Error('gunzip and rkfw options cannot be used together');
     }
     const mountName = toMountName(name);
     const mountPoint = `${mountRoot}/${mountName}`;
     ensureDir(FS, mountPoint);
+  
+    if (rkfw) {
+      FS.mount(RKFWWORKERFS, source, mountPoint);
+      return createMountResult(mountPoint, null);
+    }
 
     if (gunzip) {
       const decMount = resolveDecMount(source, name, runtime);
-      const DECWORKERFS = workerFsForDec(moduleInstance);
       FS.mount(DECWORKERFS, decMount.mountOptions, mountPoint);
-      return `${mountPoint}/${decMount.virtualName}`;
+      return createMountResult(mountPoint, decMount.virtualName);
     }
 
     const mount = resolveBrowserMount(source, name);
@@ -441,12 +540,12 @@ export async function createFsWrapper(moduleInstance, options = {}) {
         throw new Error(`Failed to mount source with WORKERFS: ${errorMessage}`);
       }
 
-      return `${mountPoint}/${mount.virtualName}`;
+      return createMountResult(mountPoint, mount.virtualName);
     }
 
     if (isNodeRuntime(runtime)) {
       FS.mount(NODEWORKERFS, mount.mountOptions, mountPoint);
-      return `${mountPoint}/${mount.virtualName}`;
+      return createMountResult(mountPoint, mount.virtualName);
     }
 
     throw new Error(`Unsupported runtime: ${runtime}`);

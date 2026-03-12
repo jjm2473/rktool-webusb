@@ -31,6 +31,11 @@ export interface RunCommandResult {
   exitCode: number;
 }
 
+export interface MountFileResult {
+  virtualPath: string;
+  mountPoint: string;
+}
+
 export interface RkdeveloptoolWrapper {
   runtime: RuntimeType;
   module: unknown;
@@ -38,7 +43,8 @@ export interface RkdeveloptoolWrapper {
   fs: unknown;
   requestDevice(filters?: Array<{ vendorId?: number; productId?: number }>): Promise<unknown>;
   getDevices(): Promise<unknown[]>;
-  mountFile(name: string, source: FileSource | string): Promise<string>;
+  mountFile(name: string, source: FileSource | string | { source:FileSource, meta: unknown}, gunzip?: boolean, rkfw?: boolean): Promise<MountFileResult>;
+  umount(mountPoint: string): void;
   runCommand(args: string[], options?: RunCommandOptions): Promise<RunCommandResult>;
 }
 

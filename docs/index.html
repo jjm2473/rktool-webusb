@@ -24,13 +24,15 @@
   <details>
     <summary style="width: fit-content;">说明</summary>
     <h3>仅支持 Chrome/Edge 等基于 Chromium 的浏览器</h3>
+    <h5>支持普通磁盘raw镜像（.img）、raw压缩固件（各种开源镜像，如 iStoreOS、OpenWRT 等，扩展名是.img.gz、.img.xz）、RKFW 固件（一般是安卓固件，扩展名也是.img）</h5>
+    <h5>支持大固件刷写，使用流式加载技术+虚拟文件系统，不会把整个固件加载到内存中</h5>
     <h5>不建议在 Windows 下使用，因为 Windows 下有 Rockchip 官方的图形刷机工具。且可能需要安装 WinUSB 驱动，驱动又可能跟 Rockchip 驱动冲突。自行评估风险</h5>
     <h4>一般刷机步骤：</h4>
     <ol>
       <li>设备进入 MASKROM 或 Loader 模式（通常是开机时按住某个按键，具体请搜索设备型号+MASKROM/Loader）</li>
-      <li>设备通过 USB 连接到电脑（通常是设备的 Type-C 接口，也可能是 A 口）</li>
-      <li>选择 Loader 文件（ MASKROM 模式需要）</li>
+      <li>设备通过 USB 连接到电脑（通常是设备的 Type-C 接口，但也可能是 A 口）</li>
       <li>选择固件</li>
+      <li>如果上一步日志没提示“检测到 RKFW 格式固件”，且设备是 MASKROM 模式，那么选择 Loader 文件</li>
       <li>点击刷写固件按钮，此过程可能会弹出设备授权请求（MASKROM 模式最多两次），如果设备列表为空，请检查设备是否正确连接（如 USB 口是否正确，设备是否进入正确模式）</li>
       <li>刷写完成后在“电源”菜单中选择相应操作（如重启或关机），或手动操作设备</li>
     </ol>
@@ -86,6 +88,7 @@
 
   <script type="module">
     import { createRKToolWorker } from './src/worker-proxy.js';
+    import { isRkfwBlob, parseRkfwBlob } from './src/rkfw-parser.js';
 
     const output = document.getElementById('output');
     const pickLoaderInput = document.getElementById('pick-loader');
@@ -105,8 +108,12 @@
 
     let selectedLoader = null;
     let selectedFile = null;
+    let rkfwVfs = null;
+    let rkfwMeta = null;
     let usbConnected = false;
     let outputActionTipTimer = null;
+    let stdoutRateLimited = false;
+    let stdoutLastSeen = 0;
 
     function showOutputActionTip(text) {
       outputActionTip.textContent = text;
@@ -236,6 +243,13 @@
           return;
         }
         last = text;
+        if (stdoutRateLimited) {
+          const now = new Date().getTime();
+          if (now - stdoutLastSeen < 200) {
+            return;
+          }
+          stdoutLastSeen = now;
+        }
         appendLine(text);
       };
     })();
@@ -251,7 +265,7 @@
     const wrapper = await createRKToolWorker({
       workerPath: './src/rktool-worker.js',
       requestDevice,
-      onStdout: appendLine,
+      onStdout: appendStdio,
       onStderr: appendLine,
       onLogWrite: (text) => appendLine(`[log] ${text}`),
     });
@@ -260,11 +274,16 @@
     pickLoaderInput.addEventListener('change', async () => {
       try {
         const loader = pickLoaderInput.files?.[0] || null;
-        if (!loader) {
+        if (selectedLoader !== null) {
+          wrapper.umount(selectedLoader.mountPoint);
           selectedLoader = null;
+        }
+        if (!loader && !rkfwVfs) {
           dlLoaderBtn.disabled = true;
           return;
         }
+        if (!loader)
+          return;
         selectedLoader = await wrapper.mountFile('loader', loader);
         appendLine(`已选择Loader: ${loader.name} (${loader.size} bytes)`);
         dlLoaderBtn.disabled = false;
@@ -278,8 +297,9 @@
           return;
         appendLine('强制重新加载 Loader 中...，如果卡死请刷新页面');
       }
+      const loaderToUse = rkfwVfs?rkfwVfs+"/MiniLoaderAll.bin":selectedLoader.virtualPath;
       try {
-        await wrapper.runCommand(['db', selectedLoader], {requestDevice: !usbConnected});
+        await wrapper.runCommand(['db', loaderToUse], {requestDevice: !usbConnected});
         appendLine('Loader 加载完成，可能要点击“选择 Rockchip 设备”按钮重新连接');
       } catch (error) {
         appendLine(String(error.message || error));
@@ -287,6 +307,14 @@
     });
 
     pickFileInput.addEventListener('change', async () => {
+      if (!selectedLoader) {
+        dlLoaderBtn.disabled = true;
+      }
+      if (rkfwVfs) {
+        wrapper.umount(rkfwVfs);
+        rkfwVfs = null;
+        rkfwMeta = null;
+      }
       try {
         selectedFile = pickFileInput.files?.[0] || null;
         if (!selectedFile) {
@@ -294,6 +322,14 @@
           return;
         }
         appendLine(`已选择固件: ${selectedFile.name} (${selectedFile.size} bytes)`);
+        if (await isRkfwBlob(selectedFile)) {
+          appendLine('检测到 RKFW 格式固件，正在解析元数据...');
+          rkfwMeta = await parseRkfwBlob(selectedFile);
+          appendLine(`固件包含 ${rkfwMeta.parts.length} 个分区: ${rkfwMeta.parts.map(e => e.name).join(', ')}`);
+          rkfwVfs = (await wrapper.mountFile('rkfw', {source: selectedFile, meta: rkfwMeta}, true)).mountPoint;
+          // RKFW 固件包含 Loader，所以即使没有单独选择Loader文件，也可以刷机
+          dlLoaderBtn.disabled = false;
+        }
         dlFileBtn.disabled = false;
       } catch (error) {
         appendLine(String(error.message || error));
@@ -308,12 +344,13 @@
         }
 
         if (!window.rkdev.serialNumber) {
-          if (selectedLoader == null) {
-            appendLine('MASKROM 模式需要选择 Loader 文件！');
+          if (selectedLoader == null && !rkfwVfs) {
+            appendLine('MASKROM 模式且非 RKFW 固件需要选择 Loader 文件！');
             return;
           }
           appendLine('加载 Loader 中...');
-          result = await wrapper.runCommand(['db', selectedLoader]);
+          const loaderToUse = rkfwVfs ? rkfwVfs + "/MiniLoaderAll.bin" : selectedLoader.virtualPath;
+          result = await wrapper.runCommand(['db', loaderToUse], {requestDevice: !usbConnected});
           if (result.exitCode === 0) {
             appendLine('Loader 加载完成');
           } else {
@@ -331,12 +368,58 @@
 
         appendLine('刷写固件中...');
         const startTime = new Date().getTime();
-        result = await wrapper.runCommand(['wl', '0', '$FILE'], {
-          fileSource: selectedFile,
-          gunzip: selectedFile.name.endsWith('.img.gz') || selectedFile.name.endsWith('.img.xz'),
-          fileName: "fw",
-          replaceToken: '$FILE',
-        });
+        if (rkfwVfs) {
+          appendLine('此固件为 RKFW 固件，按分区刷写');
+          appendLine('正在刷写IDB...');
+          result = await wrapper.runCommand(['ul', rkfwVfs + "/MiniLoaderAll.bin"]);
+          if (result.exitCode === 0) {
+            appendLine('IDB 刷写成功');
+          } else {
+            appendLine('IDB 刷写失败');
+            return;
+          }
+          const parameter = rkfwMeta.parts.find(part => part.name === 'parameter');
+          if (parameter) {
+            appendLine('发现 parameter 文件，正在更新分区表...');
+            result = await wrapper.runCommand(['gpt', rkfwVfs + "/" + parameter.fileName]);
+            if (result.exitCode === 0) {
+              appendLine('分区表刷写成功');
+            } else {
+              appendLine('分区表刷写失败');
+              return;
+            }
+          }
+          stdoutRateLimited = true;
+          for (const part of rkfwMeta.parts) {
+            if (part.name === 'parameter' || part.name === 'package-file' || part.name === 'bootloader') {
+              continue;
+            }
+            if (part.fileName == null || part.size === 0) {
+              appendLine(`分区 ${part.name} 没有指定文件，跳过刷写`);
+              continue;
+            }
+            if (part.flashSector == null) {
+              appendLine(`分区 ${part.name} 没有指定偏移量，跳过刷写`);
+              continue;
+            }
+            appendLine(`正在刷写分区 ${part.name}...`);
+            result = await wrapper.runCommand(['wl', part.flashSector, rkfwVfs + "/" + part.fileName]);
+            if (result.exitCode === 0) {
+              appendLine(`分区 ${part.name} 刷写成功`);
+            } else {
+              appendLine(`分区 ${part.name} 刷写失败`);
+              return;
+            }
+          }
+        } else {
+          stdoutRateLimited = true;
+          result = await wrapper.runCommand(['wl', '0', '$FILE'], {
+            fileSource: selectedFile,
+            gunzip: selectedFile.name.endsWith('.img.gz') || selectedFile.name.endsWith('.img.xz'),
+            fileName: "fw",
+            replaceToken: '$FILE',
+          });
+        }
         const endTime = new Date().getTime();
         const duration = (endTime - startTime) / 1000;
         if (result.exitCode === 0) {
@@ -347,6 +430,8 @@
         }
       } catch (error) {
         appendLine(String(error.message || error));
+      } finally {
+        stdoutRateLimited = false;
       }
     });
 
