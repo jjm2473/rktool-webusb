@@ -1,0 +1,30 @@
+Index: rkdeveloptool/main.cpp
+===================================================================
+--- rkdeveloptool.orig/main.cpp
++++ rkdeveloptool/main.cpp
+@@ -2700,7 +2700,11 @@ EXIT_UBI_ERASE:
+ }
+ bool erase_partition(CRKUsbComm *pComm, UINT uiOffset, UINT uiSize)
+ {
++#ifdef __EMSCRIPTEN__
++	UINT uiErase=1024*512;
++#else
+ 	UINT uiErase=1024*32;
++#endif
+ 	bool bSuccess = true;
+ 	int iRet;
+ 	while (uiSize)
+@@ -2796,11 +2800,13 @@ bool write_sparse_lba(STRUCT_RKDEVICE_DE
+ 		curChunk = 0;
+ 		if (uiSize==(u32)-1)
+ 			uiSize = ALIGN(iFileSize, SECTOR_SIZE);
++		printf("Erase partition before writing sparse image...\r\n");
+ 		bRet = erase_partition(pComm, uiBegin, uiSize);
+ 		if (!bRet) {
+ 			printf("%s failed, erase partition error\r\n", __func__);
+ 			goto Exit_WriteSparseLBA;
+ 		}
++		printf("Erase partition done, start writing sparse image...\r\n");
+ 		while(curChunk < header.total_chunks) 
+ 		{
+ 			if (!EatSparseChunk(file, chunk)) {
