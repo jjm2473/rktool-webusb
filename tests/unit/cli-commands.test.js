@@ -775,7 +775,7 @@ test('real flow: db loader fixture mounts into VFS before command', {
 
       const loaderBlob = new NodeBlob(loaderPath);
       try {
-        const mountedPath = await wrapper.mountFile('MiniLoaderAll.bin', loaderBlob);
+        const { virtualPath: mountedPath, mountPoint } = await wrapper.mountFile('MiniLoaderAll.bin', loaderBlob);
         console.debug('mount MiniLoaderAll.bin done\n');
 
         assert.match(mountedPath, /^\/tmp\/mounts\/.+\/MiniLoaderAll\.bin$/);
@@ -784,6 +784,7 @@ test('real flow: db loader fixture mounts into VFS before command', {
           requestDevice: true,
           usbFilters: [{ vendorId: 0x2207 }],
         });
+        wrapper.umount(mountPoint);
 
         console.debug('db command completed with', result.exitCode);
         console.debug('transport statistic: open=', transportState.openCallCount, 'cout=', transportState.controlTransferOutCalls.length, 'cin=', transportState.controlTransferInCalls.length);

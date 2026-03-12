@@ -55,7 +55,9 @@ const wrapper = await createRKDevelopToolWrapper({
   - 获取已授权/可见设备列表。
 
 - `mountFile(name, source)`
-  - 显式挂载文件并返回虚拟路径。
+  - 显式挂载文件并返回：
+    - `virtualPath`: 挂载后的文件虚拟路径（与旧行为一致）。
+    - `mountPoint`: 挂载点路径，可用于后续 `fs.unmount(mountPoint)`。
   - 浏览器与 Node 都通过 `WORKERFS` 文件映射；Node 侧源对象为 `NodeBlob`。
 
 ## 浏览器流程建议

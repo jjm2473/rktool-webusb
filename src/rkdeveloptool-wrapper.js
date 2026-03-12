@@ -223,6 +223,7 @@ export async function createRKDevelopToolWrapper(options = {}) {
 
   const runCommand = async function (args, runOptions = {}) {
     const argv = normalizeArgv(args);
+    let mountPoint = null;
 
     if (runOptions.requestDevice) {
       await platform.requestDevice(runOptions.usbFilters);
@@ -230,7 +231,8 @@ export async function createRKDevelopToolWrapper(options = {}) {
 
     if (runOptions.fileSource) {
       const fileName = runOptions.fileName || 'input.bin';
-      const virtualPath = await fs.mountFile(fileName, runOptions.fileSource, runOptions.gunzip);
+      const { virtualPath, mountPoint: mp } = await fs.mountFile(fileName, runOptions.fileSource, runOptions.gunzip);
+      mountPoint = mp;
       if (runOptions.replaceToken) {
         for (let index = 0; index < argv.length; index++) {
           if (argv[index] === runOptions.replaceToken) {
@@ -254,6 +256,10 @@ export async function createRKDevelopToolWrapper(options = {}) {
       } else {
         throw error;
       }
+    } finally {
+      if (mountPoint) {
+        fs.unmount(mountPoint);
+      }
     }
     return {
       exitCode
@@ -268,6 +274,7 @@ export async function createRKDevelopToolWrapper(options = {}) {
     requestDevice: (filters) => platform.requestDevice(filters),
     getDevices: () => platform.getDevices(),
     mountFile: (name, source, gunzip) => fs.mountFile(name, source, gunzip),
+    umount: (mountPoint) => fs.unmount(mountPoint),
     runCommand,
   };
 }

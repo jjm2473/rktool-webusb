@@ -100,8 +100,18 @@ self.addEventListener('message', async (event) => {
           throw new Error('Wrapper not initialized');
         }
         const { name, file } = params;
-        const virtualPath = await wrapper.mountFile(name, file);
-        postResponse(id, 'mountFile-complete', { virtualPath });
+        const mountResult = await wrapper.mountFile(name, file);
+        postResponse(id, 'mountFile-complete', mountResult);
+        break;
+      }
+
+      case 'umount': {
+        if (!wrapper) {
+          throw new Error('Wrapper not initialized');
+        }
+        const mountPoint = params;
+        const umountResult = wrapper.umount(mountPoint);
+        postResponse(id, 'umount-complete', umountResult);
         break;
       }
 

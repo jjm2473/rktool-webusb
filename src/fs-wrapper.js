@@ -413,6 +413,13 @@ export async function createFsWrapper(moduleInstance, options = {}) {
   ensureRuntimeDirs(FS);
   ensureDir(FS, mountRoot);
 
+  function createMountResult(mountPoint, virtualName) {
+    return {
+      virtualPath: `${mountPoint}/${virtualName}`,
+      mountPoint,
+    };
+  }
+
   async function mountFile(name, source, gunzip = false) {
     if (!source) {
       throw new Error('source is required');
@@ -428,7 +435,7 @@ export async function createFsWrapper(moduleInstance, options = {}) {
       const decMount = resolveDecMount(source, name, runtime);
       const DECWORKERFS = workerFsForDec(moduleInstance);
       FS.mount(DECWORKERFS, decMount.mountOptions, mountPoint);
-      return `${mountPoint}/${decMount.virtualName}`;
+      return createMountResult(mountPoint, decMount.virtualName);
     }
 
     const mount = resolveBrowserMount(source, name);
@@ -441,12 +448,12 @@ export async function createFsWrapper(moduleInstance, options = {}) {
         throw new Error(`Failed to mount source with WORKERFS: ${errorMessage}`);
       }
 
-      return `${mountPoint}/${mount.virtualName}`;
+      return createMountResult(mountPoint, mount.virtualName);
     }
 
     if (isNodeRuntime(runtime)) {
       FS.mount(NODEWORKERFS, mount.mountOptions, mountPoint);
-      return `${mountPoint}/${mount.virtualName}`;
+      return createMountResult(mountPoint, mount.virtualName);
     }
 
     throw new Error(`Unsupported runtime: ${runtime}`);

@@ -67,10 +67,9 @@ test('mountFile uses WORKERFS in browser runtime', async () => {
 
   const wrapper = await createFsWrapper(moduleInstance, { runtime: 'browser' });
   const fakeFile = { name: 'firmware.bin' };
-  const mountedPath = await wrapper.mountFile('firmware', fakeFile);
+  const { virtualPath: mountedPath, mountPoint } = await wrapper.mountFile('firmware', fakeFile);
 
   assert.match(mountedPath, /^\/tmp\/mounts\/.+\/firmware\.bin$/);
-  const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
   const mountRecord = FS.mounts.get(mountPoint);
   assert.ok(mountRecord);
   assert.equal(mountRecord.type.kind, 'WORKERFS');
@@ -89,10 +88,9 @@ test('mountFile uses WORKERFS from FS.filesystems fallback', async () => {
 
   const wrapper = await createFsWrapper(moduleInstance, { runtime: 'browser' });
   const fakeFile = { name: 'firmware.bin' };
-  const mountedPath = await wrapper.mountFile('firmware', fakeFile);
+  const { virtualPath: mountedPath, mountPoint } = await wrapper.mountFile('firmware', fakeFile);
 
   assert.match(mountedPath, /^\/tmp\/mounts\/.+\/firmware\.bin$/);
-  const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
   const mountRecord = FS.mounts.get(mountPoint);
   assert.ok(mountRecord);
   assert.equal(mountRecord.type.kind, 'WORKERFS');
@@ -116,10 +114,9 @@ test('mountFile with gunzip uses DECWORKERFS in browser runtime', async () => {
     },
   };
 
-  const mountedPath = await wrapper.mountFile('firmware', fakeFile, true);
+  const { virtualPath: mountedPath, mountPoint } = await wrapper.mountFile('firmware', fakeFile, true);
 
   assert.match(mountedPath, /^\/tmp\/mounts\/.+\/firmware\.img$/);
-  const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
   const mountRecord = FS.mounts.get(mountPoint);
   assert.ok(mountRecord);
   assert.equal(mountRecord.type.kind, 'WORKERFS');
@@ -146,10 +143,9 @@ test('mountFile with gunzip supports xz suffix in browser runtime', async () => 
     },
   };
 
-  const mountedPath = await wrapper.mountFile('firmware', fakeFile, true);
+  const { virtualPath: mountedPath, mountPoint } = await wrapper.mountFile('firmware', fakeFile, true);
 
   assert.match(mountedPath, /^\/tmp\/mounts\/.+\/firmware\.img$/);
-  const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
   const mountRecord = FS.mounts.get(mountPoint);
   assert.ok(mountRecord);
   assert.equal(mountRecord.type.kind, 'WORKERFS');
@@ -176,10 +172,9 @@ test('mountFile with gunzip prefers fallback suffix when source name is unsuppor
     },
   };
 
-  const mountedPath = await wrapper.mountFile('firmware.img.gz', fakeFile, true);
+  const { virtualPath: mountedPath, mountPoint } = await wrapper.mountFile('firmware.img.gz', fakeFile, true);
 
   assert.match(mountedPath, /^\/tmp\/mounts\/.+\/firmware\.img$/);
-  const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
   const mountRecord = FS.mounts.get(mountPoint);
   assert.ok(mountRecord);
   assert.equal(mountRecord.options.files[0].name, 'firmware.img.gz');
@@ -212,10 +207,9 @@ test('mountFile uses NODEFS in node runtime', async () => {
 
   const wrapper = await createFsWrapper(moduleInstance, { runtime: 'node' });
   await withTempNodeBlob('test-update.img', async (blob) => {
-    const mountedPath = await wrapper.mountFile('image', blob);
+    const { virtualPath: mountedPath, mountPoint } = await wrapper.mountFile('image', blob);
 
     assert.match(mountedPath, /^\/tmp\/mounts\/.+\/test-update\.img$/);
-    const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
     const mountRecord = FS.mounts.get(mountPoint);
     assert.ok(mountRecord);
     assert.equal(mountRecord.type.kind, 'WORKERFS');
@@ -236,10 +230,9 @@ test('mountFile uses NODEFS from FS.filesystems fallback', async () => {
 
   const wrapper = await createFsWrapper(moduleInstance, { runtime: 'node' });
   await withTempNodeBlob('test-update.img', async (blob) => {
-    const mountedPath = await wrapper.mountFile('image', blob);
+    const { virtualPath: mountedPath, mountPoint } = await wrapper.mountFile('image', blob);
 
     assert.match(mountedPath, /^\/tmp\/mounts\/.+\/test-update\.img$/);
-    const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
     const mountRecord = FS.mounts.get(mountPoint);
     assert.ok(mountRecord);
     assert.equal(mountRecord.type.kind, 'WORKERFS');
@@ -258,10 +251,9 @@ test('mountFile with gunzip uses DECWORKERFS in node runtime', async () => {
 
   const wrapper = await createFsWrapper(moduleInstance, { runtime: 'node' });
   await withTempNodeBlob('test-update.img.gz', async (blob) => {
-    const mountedPath = await wrapper.mountFile('image', blob, true);
+    const { virtualPath: mountedPath, mountPoint } = await wrapper.mountFile('image', blob, true);
 
     assert.match(mountedPath, /^\/tmp\/mounts\/.+\/test-update\.img$/);
-    const mountPoint = mountedPath.slice(0, mountedPath.lastIndexOf('/'));
     const mountRecord = FS.mounts.get(mountPoint);
     assert.ok(mountRecord);
     assert.equal(mountRecord.type.kind, 'WORKERFS');

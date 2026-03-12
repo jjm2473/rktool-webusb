@@ -260,8 +260,11 @@
     pickLoaderInput.addEventListener('change', async () => {
       try {
         const loader = pickLoaderInput.files?.[0] || null;
-        if (!loader) {
+        if (selectedLoader !== null) {
+          wrapper.umount(selectedLoader.mountPoint);
           selectedLoader = null;
+        }
+        if (!loader) {
           dlLoaderBtn.disabled = true;
           return;
         }
@@ -279,7 +282,7 @@
         appendLine('强制重新加载 Loader 中...，如果卡死请刷新页面');
       }
       try {
-        await wrapper.runCommand(['db', selectedLoader], {requestDevice: !usbConnected});
+        await wrapper.runCommand(['db', selectedLoader.virtualPath], {requestDevice: !usbConnected});
         appendLine('Loader 加载完成，可能要点击“选择 Rockchip 设备”按钮重新连接');
       } catch (error) {
         appendLine(String(error.message || error));
@@ -313,7 +316,7 @@
             return;
           }
           appendLine('加载 Loader 中...');
-          result = await wrapper.runCommand(['db', selectedLoader]);
+          result = await wrapper.runCommand(['db', selectedLoader.virtualPath]);
           if (result.exitCode === 0) {
             appendLine('Loader 加载完成');
           } else {
