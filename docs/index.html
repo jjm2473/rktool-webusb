@@ -22,7 +22,7 @@
 <body>
   <h1>rkdeveloptool Web 版</h1>
   <details>
-    <summary>说明</summary>
+    <summary style="width: fit-content;">说明</summary>
     <h3>仅支持 Chrome/Edge 等基于 Chromium 的浏览器</h3>
     <h5>不建议在 Windows 下使用，因为 Windows 下有 Rockchip 官方的图形刷机工具。且可能需要安装 WinUSB 驱动，驱动又可能跟 Rockchip 驱动冲突。自行评估风险</h5>
     <h4>一般刷机步骤：</h4>
@@ -44,7 +44,7 @@
   </div>
   <div>
     <label for="pick-file">选择固件</label>
-    <input id="pick-file" type="file" accept=".bin,.img,.gz" />
+    <input id="pick-file" type="file" accept=".bin,.img,.gz,.xz" />
   </div>
 
   <div>
@@ -333,7 +333,7 @@
         const startTime = new Date().getTime();
         result = await wrapper.runCommand(['wl', '0', '$FILE'], {
           fileSource: selectedFile,
-          gunzip: selectedFile.name.endsWith('.img.gz'),
+          gunzip: selectedFile.name.endsWith('.img.gz') || selectedFile.name.endsWith('.img.xz'),
           fileName: "fw",
           replaceToken: '$FILE',
         });
