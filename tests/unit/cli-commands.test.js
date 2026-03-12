@@ -261,7 +261,7 @@ function createRockusbWebUsbDevice(options = {}, dumpOutput) {
     opened: false,
     configuration: { configurationValue: 1 },
     async open() {
-      console.debug(`Device open called (vid: ${vid.toString(16)}, pid: ${pid.toString(16)})`);
+      //console.debug(`Device open called (vid: ${vid.toString(16)}, pid: ${pid.toString(16)})`);
       transportState.openCallCount++;
       this.opened = true;
       return 0;
@@ -284,7 +284,7 @@ function createRockusbWebUsbDevice(options = {}, dumpOutput) {
     },
     async controlTransferOut(_params, data) {
       transportState.controlTransferOutCalls.push({ _params, length: byteLengthOf(data) });
-      console.debug(`Device controlTransferOut called (vid: ${vid.toString(16)}, pid: ${pid.toString(16)}, params: ${JSON.stringify(_params)}, length: ${byteLengthOf(data)})`);
+      //console.debug(`Device controlTransferOut called (vid: ${vid.toString(16)}, pid: ${pid.toString(16)}, params: ${JSON.stringify(_params)}, length: ${byteLengthOf(data)})`);
       return { status: 'ok', bytesWritten: byteLengthOf(data) };
     },
     async transferIn(endpointNumber, length) {
@@ -888,6 +888,7 @@ test('real flow: wl with gunzip', {
     assert.equal(fs.existsSync(openwrtXzImage), true, 'openwrt xz image must exist');
 
     let crc = 0;
+    let writeSize = 0;
     const { device, transportState } = createRockusbWebUsbDevice({
       vid: 0x2207,
       pid: 0x320a,
@@ -898,6 +899,7 @@ test('real flow: wl with gunzip', {
         return;
       }
       crc = crc32(payload, crc);
+      writeSize += payload.byteLength;
     });
   
     const { webUsb, state } = createMockUsb({
@@ -910,7 +912,7 @@ test('real flow: wl with gunzip', {
         runtime: 'node',
         webUsb,
         onStdout: (text) => {
-          console.debug(`STDOUT: ${text}`);
+          //console.debug(`STDOUT: ${text}`);
         },
         onStderr: (text) => {
           console.debug(`STDERR: ${text}`);
@@ -935,7 +937,7 @@ test('real flow: wl with gunzip', {
         });
 
         console.debug('wl command completed with', result.exitCode);
-        console.debug('transport statistic: open=', transportState.openCallCount, 'out=', transportState.transferOutCalls.length, 'in=', transportState.transferInCalls.length);
+        console.debug('transport statistic: open=', transportState.openCallCount, 'out=', transportState.transferOutCalls.length, 'bytes', writeSize, 'in=', transportState.transferInCalls.length);
 
         assert.equal(typeof result.exitCode, 'number');
         assert.equal(state.requestDeviceCallCount, 1);
@@ -944,6 +946,7 @@ test('real flow: wl with gunzip', {
         assert.equal(transportState.controlTransferInCalls.length > 0, true);
         assert.equal(transportState.transferOutCalls.length > 0, true);
         assert.equal(transportState.transferInCalls.length > 0, true);
+        assert.equal(writeSize, 16777216);
         const rawCrc = crc;
         crc = 0;
         result = await wrapper.runCommand(['wl', '0', '$FILE'], {
