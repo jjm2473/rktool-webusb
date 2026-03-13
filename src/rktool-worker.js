@@ -2,6 +2,28 @@ import { createRKDevelopToolWrapper } from './rkdeveloptool-wrapper.js';
 
 let wrapper = null;
 let pakoInflateReadyPromise = null;
+let flashStageCallbackId = 0;
+const pendingFlashStageCallbacks = new Map();
+
+function resolveFlashStageCallback(params, error) {
+  const callbackId = params?.callbackId;
+  if (callbackId === null || callbackId === undefined) {
+    return;
+  }
+
+  const pending = pendingFlashStageCallbacks.get(callbackId);
+  if (!pending) {
+    return;
+  }
+
+  pendingFlashStageCallbacks.delete(callbackId);
+  if (error) {
+    pending.reject(error);
+    return;
+  }
+
+  pending.resolve();
+}
 
 async function ensurePakoInflate() {
   if (typeof globalThis.pako?.Inflate === 'function') {
@@ -78,6 +100,20 @@ function postOutput(type, text) {
 self.addEventListener('message', async (event) => {
   const { id, method, params } = event.data;
 
+  if (method === 'flashStageAck') {
+    resolveFlashStageCallback(params, null);
+    return;
+  }
+
+  if (method === 'flashStageError') {
+    const error = new Error(params?.message || 'flash stage callback failed');
+    if (params?.stack) {
+      error.stack = params.stack;
+    }
+    resolveFlashStageCallback(params, error);
+    return;
+  }
+
   try {
     switch (method) {
       case 'init': {
@@ -122,6 +158,33 @@ self.addEventListener('message', async (event) => {
         const { args, options } = params;
         const result = await wrapper.runCommand(args, options);
         postResponse(id, 'runCommand-complete', result);
+        break;
+      }
+
+      case 'flashRKFW': {
+        if (!wrapper) {
+          throw new Error('Wrapper not initialized');
+        }
+        const { rkfwVfs } = params || {};
+        const result = await wrapper.flashRKFW(rkfwVfs, async (stage) => {
+          const callbackId = ++flashStageCallbackId;
+          const callbackDone = new Promise((resolve, reject) => {
+            pendingFlashStageCallbacks.set(callbackId, { resolve, reject });
+          });
+
+          self.postMessage({
+            id,
+            type: 'flash-stage',
+            data: {
+              callbackId,
+              stage,
+            },
+          });
+
+          await callbackDone;
+        });
+
+        postResponse(id, 'flashRKFW-complete', result);
         break;
       }
 

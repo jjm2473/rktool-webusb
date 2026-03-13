@@ -266,6 +266,53 @@ export async function createRKDevelopToolWrapper(options = {}) {
     };
   }
 
+  const flashRKFW = async function(rkfwVfs, onStage) {
+    await onStage({type:'idb', state:'start'});
+    let result = await runCommand(['ul', rkfwVfs.mountPoint + "/MiniLoaderAll.bin"]);
+    if (result.exitCode === 0) {
+      await onStage({type:'idb', state:'successed'});
+    } else {
+      await onStage({type:'idb', state:'failed'});
+      return result;
+    }
+    const parameter = rkfwVfs.meta.parts.find(part => part.name === 'parameter');
+    if (parameter) {
+      await onStage({type:'gpt', state:'start'});
+      result = await runCommand(['gpt', rkfwVfs.mountPoint + "/" + parameter.fileName]);
+      if (result.exitCode === 0) {
+        await onStage({type:'gpt', state:'successed'});
+      } else {
+        await onStage({type:'gpt', state:'failed'});
+        return result;
+      }
+    }
+    await onStage({type:'parts', state:'start'});
+    for (const part of rkfwVfs.meta.parts) {
+      if (part.name === 'parameter' || part.name === 'package-file' || part.name === 'bootloader') {
+        continue;
+      }
+      if (part.fileName == null || part.size === 0) {
+        await onStage({type:'part', object: part.name, state:'skipped'});
+        continue;
+      }
+      if (part.flashSector == null) {
+        await onStage({type:'part', object: part.name, state:'skipped'});
+        continue;
+      }
+      await onStage({type:'part', object: part.name, state:'start'});
+      result = await runCommand(['wl', part.flashSector, rkfwVfs.mountPoint + "/" + part.fileName]);
+      if (result.exitCode === 0) {
+        await onStage({type:'part', object: part.name, state:'successed'});
+      } else {
+        await onStage({type:'part', object: part.name, state:'failed'});
+        await onStage({type:'parts', state:'failed'});
+        return result;
+      }
+    }
+    await onStage({type:'parts', state:'successed'});
+    return result;
+  }
+
   return {
     runtime: platform.runtime,
     module: moduleInstance,
@@ -276,5 +323,6 @@ export async function createRKDevelopToolWrapper(options = {}) {
     mountFile: (name, source, gunzip, rkfw) => fs.mountFile(name, source, gunzip, rkfw),
     umount: (mountPoint) => fs.unmount(mountPoint),
     runCommand,
+    flashRKFW,
   };
 }

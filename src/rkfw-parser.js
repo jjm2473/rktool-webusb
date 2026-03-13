@@ -93,12 +93,7 @@ try {
  * Parse RKFW/RKAF layout metadata from a Blob-like source.
  *
  * @param {Blob} blob
- * @returns {Promise<{
- *   loader: { name: string; offset: number; size: number; flashSector: null };
- *   parts: Array<{ name: string; fileName: string | null; offset: number; size: number; flashSector: number | null }>;
- *   model: string;
- *   manufacturer: string;
- * }>}
+ * @returns {Promise<RkfwInfo>}
  */
 export async function parseRkfwBlob(blob) {
 assertBlobLike(blob);

@@ -6,6 +6,7 @@ export class RKToolWorkerProxy {
     this.worker = new Worker(workerPath, { type: 'module' });
     this.messageId = 0;
     this.pendingRequests = new Map();
+    this.pendingStageCallbacks = new Map();
     this.onStdout = null;
     this.onStderr = null;
     this.onLogWrite = null;
@@ -37,6 +38,11 @@ export class RKToolWorkerProxy {
       return;
     }
 
+    if (type === 'flash-stage') {
+      this.handleFlashStageMessage(id, data);
+      return;
+    }
+
     // 处理响应消息
     if (id !== null && id !== undefined) {
       const pending = this.pendingRequests.get(id);
@@ -55,12 +61,54 @@ export class RKToolWorkerProxy {
     }
   }
 
-  sendRequest(method, params) {
-    return new Promise((resolve, reject) => {
-      const id = ++this.messageId;
+  handleFlashStageMessage(requestId, data) {
+    const callbackId = data?.callbackId;
+    if (callbackId === null || callbackId === undefined) {
+      return;
+    }
+
+    const onStage = this.pendingStageCallbacks.get(requestId);
+    if (typeof onStage !== 'function') {
+      this.worker.postMessage({
+        method: 'flashStageAck',
+        params: { callbackId },
+      });
+      return;
+    }
+
+    Promise.resolve()
+      .then(() => onStage(data.stage))
+      .then(() => {
+        this.worker.postMessage({
+          method: 'flashStageAck',
+          params: { callbackId },
+        });
+      })
+      .catch((error) => {
+        this.worker.postMessage({
+          method: 'flashStageError',
+          params: {
+            callbackId,
+            message: error?.message || String(error),
+            stack: error?.stack,
+          },
+        });
+      });
+  }
+
+  sendRequestWithId(method, params, onId) {
+    const id = ++this.messageId;
+    onId?.(id);
+    const promise = new Promise((resolve, reject) => {
       this.pendingRequests.set(id, { resolve, reject });
       this.worker.postMessage({ id, method, params });
     });
+
+    return { id, promise };
+  }
+
+  sendRequest(method, params) {
+    return this.sendRequestWithId(method, params).promise;
   }
 
   async init(options = {}) {
@@ -132,6 +180,20 @@ export class RKToolWorkerProxy {
     return result;
   }
 
+  async flashRKFW(rkfwVfs, onStage = null) {
+    let reqId = null;
+    try {
+      const request = this.sendRequestWithId('flashRKFW', { rkfwVfs }, (id) => {
+        this.pendingStageCallbacks.set(id, onStage);
+        reqId = id;
+      });
+      return await request.promise;
+    } finally {
+      if (reqId !== null)
+        this.pendingStageCallbacks.delete(reqId);
+    }
+  }
+
   async sleep(duration) {
     await this.sendRequest('sleep', { duration });
   }
@@ -139,6 +201,7 @@ export class RKToolWorkerProxy {
   terminate() {
     this.worker.terminate();
     this.pendingRequests.clear();
+    this.pendingStageCallbacks.clear();
   }
 }
 
@@ -162,6 +225,7 @@ export async function createRKToolWorker(options = {}) {
     mountFile: (name, source, rkfw) => proxy.mountFile(name, source, rkfw),
     umount: (mountPoint) => proxy.umount(mountPoint),
     runCommand: (args, options) => proxy.runCommand(args, options),
+    flashRKFW: (rkfwVfs, onStage) => proxy.flashRKFW(rkfwVfs, onStage),
     sleep: (duration) => proxy.sleep(duration),
     terminate: () => proxy.terminate(),
   };

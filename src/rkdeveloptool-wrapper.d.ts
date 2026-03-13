@@ -1,3 +1,5 @@
+import { RkfwInfo } from "./rkfw"
+
 export type RuntimeType = 'browser' | 'node' | 'unknown';
 
 export interface BlobLikeSource {
@@ -36,6 +38,28 @@ export interface MountFileResult {
   mountPoint: string;
 }
 
+export interface Rkfw {
+  source: FileSource;
+  meta: RkfwInfo;
+}
+
+export interface RkfwVfs {
+  mountPoint: string;
+  meta: RkfwInfo;
+}
+
+export type RkObjectType = 'idb' | 'gpt' | 'parm' | 'parts' | 'part';
+export type FlashingState = 'start' | 'successed' | 'failed' | 'skipped';
+
+export interface RkfwFlashStage {
+  type: RkObjectType;
+  /*
+   * only avaliable on 'part' type
+   */
+  object: string;
+  state: FlashingState;
+}
+
 export interface RkdeveloptoolWrapper {
   runtime: RuntimeType;
   module: unknown;
@@ -43,9 +67,10 @@ export interface RkdeveloptoolWrapper {
   fs: unknown;
   requestDevice(filters?: Array<{ vendorId?: number; productId?: number }>): Promise<unknown>;
   getDevices(): Promise<unknown[]>;
-  mountFile(name: string, source: FileSource | string | { source:FileSource, meta: unknown}, gunzip?: boolean, rkfw?: boolean): Promise<MountFileResult>;
+  mountFile(name: string, source: FileSource | string | Rkfw, gunzip?: boolean, rkfw?: boolean): Promise<MountFileResult>;
   umount(mountPoint: string): void;
   runCommand(args: string[], options?: RunCommandOptions): Promise<RunCommandResult>;
+  flashRKFW(rkfwVfs: RkfwVfs, onStage?: (stage: RkfwFlashStage) => Promise<void>): Promise<RunCommandResult>;
 }
 
 export interface WrapperCreateOptions {

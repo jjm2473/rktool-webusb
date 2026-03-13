@@ -272,16 +272,15 @@
     appendLine('初始化完成（运行在 Worker 中）');
 
     pickLoaderInput.addEventListener('change', async () => {
+      if (!rkfwVfs)
+        dlLoaderBtn.disabled = true;
+      if (selectedLoader !== null) {
+        wrapper.umount(selectedLoader.mountPoint);
+        selectedLoader = null;
+      }
+
       try {
         const loader = pickLoaderInput.files?.[0] || null;
-        if (selectedLoader !== null) {
-          wrapper.umount(selectedLoader.mountPoint);
-          selectedLoader = null;
-        }
-        if (!loader && !rkfwVfs) {
-          dlLoaderBtn.disabled = true;
-          return;
-        }
         if (!loader)
           return;
         selectedLoader = await wrapper.mountFile('loader', loader);
@@ -307,9 +306,9 @@
     });
 
     pickFileInput.addEventListener('change', async () => {
-      if (!selectedLoader) {
+      dlFileBtn.disabled = true;
+      if (!selectedLoader)
         dlLoaderBtn.disabled = true;
-      }
       if (rkfwVfs) {
         wrapper.umount(rkfwVfs);
         rkfwVfs = null;
@@ -317,15 +316,22 @@
       }
       try {
         selectedFile = pickFileInput.files?.[0] || null;
-        if (!selectedFile) {
-          dlFileBtn.disabled = true;
+        if (!selectedFile)
           return;
-        }
         appendLine(`已选择固件: ${selectedFile.name} (${selectedFile.size} bytes)`);
         if (await isRkfwBlob(selectedFile)) {
           appendLine('检测到 RKFW 格式固件，正在解析元数据...');
           rkfwMeta = await parseRkfwBlob(selectedFile);
-          appendLine(`固件包含 ${rkfwMeta.parts.length} 个分区: ${rkfwMeta.parts.map(e => e.name).join(', ')}`);
+          appendLine(`固件声明的制造商: ${rkfwMeta.manufacturer}, 型号: ${rkfwMeta.model}`);
+          const metapart = [];
+          const realPart = [];
+          rkfwMeta.parts.forEach(part => {
+            if (part.name === 'parameter' || part.name === 'package-file' || part.name === 'bootloader')
+              metapart.push(part);
+            else if (part.flashSector !== null && part.fileName !== null)
+              realPart.push(part);
+          });
+          appendLine(`固件包含 ${realPart.length} 个可刷写分区: ${realPart.map(e => e.name).join(', ')} 。以及其他数据 ${metapart.map(e => e.name).join(', ')}`);
           rkfwVfs = (await wrapper.mountFile('rkfw', {source: selectedFile, meta: rkfwMeta}, true)).mountPoint;
           // RKFW 固件包含 Loader，所以即使没有单独选择Loader文件，也可以刷机
           dlLoaderBtn.disabled = false;
@@ -370,47 +376,49 @@
         const startTime = new Date().getTime();
         if (rkfwVfs) {
           appendLine('此固件为 RKFW 固件，按分区刷写');
-          appendLine('正在刷写IDB...');
-          result = await wrapper.runCommand(['ul', rkfwVfs + "/MiniLoaderAll.bin"]);
-          if (result.exitCode === 0) {
-            appendLine('IDB 刷写成功');
-          } else {
-            appendLine('IDB 刷写失败');
-            return;
-          }
-          const parameter = rkfwMeta.parts.find(part => part.name === 'parameter');
-          if (parameter) {
-            appendLine('发现 parameter 文件，正在更新分区表...');
-            result = await wrapper.runCommand(['gpt', rkfwVfs + "/" + parameter.fileName]);
-            if (result.exitCode === 0) {
-              appendLine('分区表刷写成功');
-            } else {
-              appendLine('分区表刷写失败');
+          result = await wrapper.flashRKFW({mountPoint: rkfwVfs, meta: rkfwMeta}, async (stage) => {
+            if (stage.type === 'idb') {
+              if (stage.state === 'start') {
+                appendLine('正在刷写IDB...');
+              } else if (stage.state === 'successed') {
+                appendLine('IDB 刷写成功');
+              } else if (stage.state === 'failed') {
+                appendLine('IDB 刷写失败');
+              }
               return;
             }
-          }
-          stdoutRateLimited = true;
-          for (const part of rkfwMeta.parts) {
-            if (part.name === 'parameter' || part.name === 'package-file' || part.name === 'bootloader') {
-              continue;
-            }
-            if (part.fileName == null || part.size === 0) {
-              appendLine(`分区 ${part.name} 没有指定文件，跳过刷写`);
-              continue;
-            }
-            if (part.flashSector == null) {
-              appendLine(`分区 ${part.name} 没有指定偏移量，跳过刷写`);
-              continue;
-            }
-            appendLine(`正在刷写分区 ${part.name}...`);
-            result = await wrapper.runCommand(['wl', part.flashSector, rkfwVfs + "/" + part.fileName]);
-            if (result.exitCode === 0) {
-              appendLine(`分区 ${part.name} 刷写成功`);
-            } else {
-              appendLine(`分区 ${part.name} 刷写失败`);
+
+            if (stage.type === 'gpt') {
+              if (stage.state === 'start') {
+                appendLine('发现 parameter 文件，正在更新分区表...');
+              } else if (stage.state === 'successed') {
+                appendLine('分区表刷写成功');
+              } else if (stage.state === 'failed') {
+                appendLine('分区表刷写失败');
+              }
               return;
             }
-          }
+
+            if (stage.type === 'part') {
+              if (stage.state === 'start') {
+                appendLine(`正在刷写分区 ${stage.object}...`);
+              } else if (stage.state === 'successed') {
+                appendLine(`分区 ${stage.object} 刷写成功`);
+              } else if (stage.state === 'failed') {
+                appendLine(`分区 ${stage.object} 刷写失败`);
+              } else if (stage.state === 'skipped') {
+                appendLine(`分区 ${stage.object} 没有指定文件或 Flash 偏移量，跳过刷写`);
+              }
+              return;
+            }
+
+            if (stage.type === 'parts') {
+              if (stage.state === 'start')
+                stdoutRateLimited = true;
+              else
+                stdoutRateLimited = false;
+            }
+          });
         } else {
           stdoutRateLimited = true;
           result = await wrapper.runCommand(['wl', '0', '$FILE'], {
