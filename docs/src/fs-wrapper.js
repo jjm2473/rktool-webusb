@@ -1,5 +1,5 @@
-import { GzipStream } from './gzip-stream.js';
-import { XzStream } from './xz-stream.js';
+import { GzipStream } from './gzip-stream.js?v=768a1bd';
+import { XzStream } from './xz-stream.js?v=768a1bd';
 
 function assert(condition, text) {
   if (!condition) {
@@ -492,7 +492,7 @@ export async function createFsWrapper(moduleInstance, options = {}) {
   if (!WORKERFS) {
     throw new Error('WORKERFS is required for file mapping');
   }
-  const NodeBlobReaderSync = isNodeRuntime(runtime) ? (await import('./node-blob.js')).NodeBlobReaderSync : null;
+  const NodeBlobReaderSync = isNodeRuntime(runtime) ? (await import('./node/node-blob.js')).NodeBlobReaderSync : null;
   const NODEWORKERFS = isNodeRuntime(runtime) ? await workerFsForNode(moduleInstance, NodeBlobReaderSync) : null;
   const DECWORKERFS = workerFsForDec(moduleInstance);
   const RKFWWORKERFS = workerFsForRkfw(moduleInstance, NodeBlobReaderSync);

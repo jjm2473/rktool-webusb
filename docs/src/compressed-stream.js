@@ -13,7 +13,7 @@ function isNodeRuntime() {
 	return typeof process !== 'undefined' && !!(process.versions && process.versions.node);
 }
 
-const NodeBlobReaderSync = isNodeRuntime() ? (await import('./node-blob.js')).NodeBlobReaderSync : null;
+const NodeBlobReaderSync = isNodeRuntime() ? (await import('./node/node-blob.js')).NodeBlobReaderSync : null;
 
 export function normalizeSize(value, fallback) {
 	const parsed = Number(value);

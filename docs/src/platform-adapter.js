@@ -1,5 +1,5 @@
-import { createFsWrapper } from './fs-wrapper.js';
-import { createUsbAdapter, ROCKCHIP_USB_FILTERS } from './usb-adapter.js';
+import { createFsWrapper } from './fs-wrapper.js?v=768a1bd';
+import { createUsbAdapter, ROCKCHIP_USB_FILTERS } from './usb-adapter.js?v=768a1bd';
 
 export function detectRuntime() {
   if (typeof window !== 'undefined' && typeof window.document !== 'undefined') {

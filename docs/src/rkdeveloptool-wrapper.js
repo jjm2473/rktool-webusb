@@ -1,7 +1,6 @@
-import { createPlatformAdapter } from './platform-adapter.js';
+import { createPlatformAdapter } from './platform-adapter.js?v=768a1bd';
 
-const DEFAULT_MODULE_URL = '../dist/rkdeveloptool.js';
-const DEFAULT_WASM_URL = '../dist/rkdeveloptool.wasm';
+const DEFAULT_MODULE_URL = '../dist/rkdeveloptool.js?v=391e2385';
 
 function ensureDir(FS, dirPath) {
   const dirExists = () => {
@@ -181,7 +180,6 @@ async function runCallMainAndWait(moduleInstance, argv) {
 export async function createRKDevelopToolWrapper(options = {}) {
   const platform = await createPlatformAdapter(options);
   const factory = await resolveModuleFactory(options.moduleFactory, options.moduleUrl);
-  const wasmSpecifier = normalizeSpecifier(options.wasmUrl, DEFAULT_WASM_URL);
   const dedupedLog = (callback) => {
     if (typeof callback !== 'function') {
       return () => {};
@@ -200,12 +198,6 @@ export async function createRKDevelopToolWrapper(options = {}) {
     noInitialRun: true,
     print: dedupedLog(options.onStdout),
     printErr: typeof options.onStderr === 'function' ? options.onStderr : ()=>{},
-    locateFile: (fileName) => {
-      if (fileName.endsWith('.wasm')) {
-        return wasmSpecifier;
-      }
-      return fileName;
-    },
   });
 
   const FS = moduleInstance.FS;
@@ -266,6 +258,53 @@ export async function createRKDevelopToolWrapper(options = {}) {
     };
   }
 
+  const flashRKFW = async function(rkfwVfs, onStage) {
+    await onStage({type:'idb', state:'start'});
+    let result = await runCommand(['ul', rkfwVfs.mountPoint + "/MiniLoaderAll.bin"]);
+    if (result.exitCode === 0) {
+      await onStage({type:'idb', state:'successed'});
+    } else {
+      await onStage({type:'idb', state:'failed'});
+      return result;
+    }
+    const parameter = rkfwVfs.meta.parts.find(part => part.name === 'parameter');
+    if (parameter) {
+      await onStage({type:'gpt', state:'start'});
+      result = await runCommand(['gpt', rkfwVfs.mountPoint + "/" + parameter.fileName]);
+      if (result.exitCode === 0) {
+        await onStage({type:'gpt', state:'successed'});
+      } else {
+        await onStage({type:'gpt', state:'failed'});
+        return result;
+      }
+    }
+    await onStage({type:'parts', state:'start'});
+    for (const part of rkfwVfs.meta.parts) {
+      if (part.name === 'parameter' || part.name === 'package-file' || part.name === 'bootloader') {
+        continue;
+      }
+      if (part.fileName == null || part.size === 0) {
+        await onStage({type:'part', object: part.name, state:'skipped'});
+        continue;
+      }
+      if (part.flashSector == null) {
+        await onStage({type:'part', object: part.name, state:'skipped'});
+        continue;
+      }
+      await onStage({type:'part', object: part.name, state:'start'});
+      result = await runCommand(['wl', part.flashSector, rkfwVfs.mountPoint + "/" + part.fileName]);
+      if (result.exitCode === 0) {
+        await onStage({type:'part', object: part.name, state:'successed'});
+      } else {
+        await onStage({type:'part', object: part.name, state:'failed'});
+        await onStage({type:'parts', state:'failed'});
+        return result;
+      }
+    }
+    await onStage({type:'parts', state:'successed'});
+    return result;
+  }
+
   return {
     runtime: platform.runtime,
     module: moduleInstance,
@@ -276,5 +315,6 @@ export async function createRKDevelopToolWrapper(options = {}) {
     mountFile: (name, source, gunzip, rkfw) => fs.mountFile(name, source, gunzip, rkfw),
     umount: (mountPoint) => fs.unmount(mountPoint),
     runCommand,
+    flashRKFW,
   };
 }

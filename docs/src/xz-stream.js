@@ -2,7 +2,7 @@ import {
 	InternalCompressedStream,
 	normalizeSize,
 	toUint8Array,
-} from './compressed-stream.js';
+} from './compressed-stream.js?v=768a1bd';
 
 const XZ_OK = 0;
 const XZ_STREAM_END = 1;
