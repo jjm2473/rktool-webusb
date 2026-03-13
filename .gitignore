@@ -7,3 +7,5 @@
 /.cert
 /node_modules
 /webarchive
+/examples/browser/dist
+/examples/browser/src

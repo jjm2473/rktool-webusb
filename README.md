@@ -2,6 +2,13 @@
 
 将 `rkdeveloptool` 编译为 WebAssembly，并通过适配层在浏览器（WebUSB）与 Node.js 中复用同一套 CLI 调用方式。
 
+已支持固件格式：
+1. raw 磁盘镜像 （.img）
+2. 压缩 raw 磁盘镜像，包括 iStoreOS，OpenWRT，Armbian 等（.img.gz, .img.xz）
+3. RKFW 固件，一般安卓固件是这种格式 （.img）
+
+> 除了 raw 磁盘镜像，其他都是在前端靠 VFS 实现，非 rkdeveloptool 原有功能。
+
 ## 环境要求
 
 - Emscripten 3.1.48+
