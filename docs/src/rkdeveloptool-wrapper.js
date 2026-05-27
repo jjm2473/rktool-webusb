@@ -1,6 +1,6 @@
 import { createPlatformAdapter } from './platform-adapter.js?v=768a1bd';
 
-const DEFAULT_MODULE_URL = '../dist/rkdeveloptool.js?v=391e2385';
+const DEFAULT_MODULE_URL = '../dist/rkdeveloptool.js?v=492a9861';
 
 function ensureDir(FS, dirPath) {
   const dirExists = () => {

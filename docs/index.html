@@ -246,6 +246,7 @@
         if (stdoutRateLimited && !text.startsWith('Erase ')) {
           const now = new Date().getTime();
           if (now - stdoutLastSeen < 200) {
+            console.debug('stdout(skiped):', text);
             return;
           }
           stdoutLastSeen = now;
